@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cozytrip",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-03",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "cozytrip", "database_id": "62057f8c-2023-466c-9265-07259143f597" }
+  ]
+}

@@ -1,0 +1,5 @@
+
+# Deployment and infrastructure changes require Tim review.
+/.github/workflows/  @xajtim
+/.github/CODEOWNERS  @xajtim
+/wrangler.jsonc      @xajtim

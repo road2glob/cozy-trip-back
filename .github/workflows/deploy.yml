@@ -1,0 +1,53 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一时间只跑一个部署，后来的等前一个结束，避免两次部署互相覆盖
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Check secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::缺少 CLOUDFLARE_API_TOKEN 或 CLOUDFLARE_ACCOUNT_ID，请在仓库 Settings → Secrets and variables → Actions 里添加"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # 有 migrations/ 目录时才执行；只会应用还没跑过的迁移
+      - name: Apply D1 migrations
+        run: |
+          if [ -d migrations ]; then
+            npx wrangler d1 migrations apply cozytrip --remote
+          else
+            echo "没有 migrations/ 目录，跳过"
+          fi
+
+      - name: Deploy
+        run: npx wrangler deploy

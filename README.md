@@ -71,6 +71,22 @@ PayPal transactions, once approved and captured, are real **Sandbox** transactio
 
 `update_case_status` appears for a user only after a paid verified delivery. Calling it earlier returns `delivery_required`. No orders means only the import entry; no confirmed issue means no service-purchase code; no quote/confirmation means no pay URL; zero-due and captured members have no payment entry.
 
+## In-chat cards (MCP Apps)
+
+Hosts that support MCP Apps (Claude, ChatGPT, VS Code and others) also render a card next to these tools' results; other hosts show the text, which always carries the price, the code and the link. One page, `ui://cozytrip/card.html`, picks its view from the tool's `structuredContent`:
+
+| Tool | Card | Next step in the card |
+|---|---|---|
+| `get_status` | Empty ledger, or trips with run steps and split state | Import the sample trip · Refresh |
+| `import_orders` | Trip, bookings, balances | Preview the demo impact |
+| `detect_impact` | Four bookings with status and rule | Confirm the simulation (local code) · Options · Quote |
+| `plan_options` | Three recovery options | Get the after-sales quote |
+| `quote_service` | USD 9.90, code expiry or already approved | Approve the service fee |
+| `create_service_payment` | Awaiting payment | Open checkout (host opens the link) · Check my payment |
+| `verify_payment` | Not confirmed yet, or the delivered drafts | Check again |
+
+Buttons go through the host (`tools/call`, `ui/open-link`) and the server checks every input as it does for the model, so the card adds no new way in. The card is built from `ui/` into `src/ui/cardHtml.generated.ts` (inline CSS and JS only; the default MCP Apps CSP allows nothing else): run `npm run build:ui` after editing `ui/`; a test fails if the generated file is stale. To view cards locally, run `npx @modelcontextprotocol/inspector@latest`, add the Streamable HTTP server `http://localhost:8788/mcp` with header `Authorization: Bearer <token>`, connect and open **Apps**.
+
 ## Run locally
 
 Node 24+. Local mode uses the deterministic contract stub and never reaches PayPal. No cloud login is needed.
@@ -95,6 +111,6 @@ Migrations contain schema only. Remote migrations are performed manually by the 
 
 ## Layout and license
 
-`src/tools/` MCP tools; `src/domain/` deterministic rules, confirmation and case state; `src/paymentService/` outbound payment contract; `stub/` offline fake; `migrations/` schema only; `test/` offline tests; `docs/devpost/` submission draft.
+`src/tools/` MCP tools; `ui/` MCP Apps card source; `src/domain/` deterministic rules, confirmation and case state; `src/paymentService/` outbound payment contract; `stub/` offline fake; `migrations/` schema only; `test/` offline tests; `docs/devpost/` submission draft.
 
 [MIT license](LICENSE). This application is open source. Hosted access must remain available through judging; use the dedicated judge test accounts above.

@@ -7,7 +7,9 @@ import * as detectImpact from "./detectImpact";
 import * as reconcileTrip from "./reconcileTrip";
 import * as verifyPayment from "./verifyPayment";
 import type { McpServer, StandardSchemaWithJSON, ToolCallback } from "@modelcontextprotocol/server";
+import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
 import { getMcpAuthContext } from "agents/mcp/server";
+import { CARD_TOOL_META } from "../mcp/ui";
 import type { Env } from "../env";
 import type { AuthProps } from "../mcp/auth";
 import { logEvent } from "../log";
@@ -32,7 +34,8 @@ function requestContext(env: Env): ToolContext | null {
   return { env, userId: props.userId, tokenId: props.tokenId, requestId: props.requestId };
 }
 
-function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env, tool: ToolModule<S>): void {
+/** `card: true` links the tool's result to the MCP Apps card; only tools the card has a view for set it */
+function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env, tool: ToolModule<S>, card = false): void {
   // The SDK's callback type is conditional on S, which TypeScript cannot resolve inside a generic function.
   const callback = async (args: StandardSchemaWithJSON.InferOutput<S>): Promise<ToolResult> => {
     const ctx = requestContext(env);
@@ -55,23 +58,25 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
       return fail("internal_error", "Unexpected error. Nothing was charged.");
     }
   };
-  server.registerTool<StandardSchemaWithJSON, S>(
-    tool.name,
-    { description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations },
-    callback as unknown as ToolCallback<S>,
-  );
+  const config = { description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations };
+  if (card) {
+    // registerAppTool = registerTool plus the MCP Apps _meta that points hosts at the card.
+    registerAppTool<StandardSchemaWithJSON, S>(server, tool.name, { ...config, _meta: CARD_TOOL_META }, callback as unknown as ToolCallback<S>);
+  } else {
+    server.registerTool<StandardSchemaWithJSON, S>(tool.name, config, callback as unknown as ToolCallback<S>);
+  }
 }
 
-// Phase 1 registers only these four tools. No resources, prompts or ui:// apps.
+// No prompts. Tools marked `true` also show the MCP Apps card (one ui:// resource, src/mcp/ui.ts).
 export function registerTools(server: McpServer, env: Env, caseAvailable=false): void {
-  register(server, env, getStatus);
-  register(server, env, importOrders);
-  register(server, env, quoteService);
-  register(server, env, createServicePayment);
-  register(server, env, verifyPayment);
+  register(server, env, getStatus, true);
+  register(server, env, importOrders, true);
+  register(server, env, quoteService, true);
+  register(server, env, createServicePayment, true);
+  register(server, env, verifyPayment, true);
   register(server, env, reconcileTrip);
-  register(server, env, detectImpact);
-  register(server, env, planOptions);
+  register(server, env, detectImpact, true);
+  register(server, env, planOptions, true);
   register(server, env, quoteSplit);
   register(server, env, createSplitPayments);
   register(server, env, splitStatus);

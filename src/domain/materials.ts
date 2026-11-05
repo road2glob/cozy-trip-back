@@ -5,7 +5,7 @@ export interface DraftOutput {
   trackingState: "prepared";
   materials: { kind: string; text: string }[];
 }
-export const AI_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+export const AI_MODEL = "@cf/meta/llama-3.2-3b-instruct";
 const safe = (s: unknown): s is string =>
   typeof s === "string" &&
   s.length > 15 &&
@@ -44,7 +44,7 @@ export async function draftMaterials(
               }),
             },
           ],
-          max_completion_tokens: 750,
+          max_tokens: 350,
           temperature: 0.2,
         }),
         new Promise<never>((_, reject) => {
@@ -52,11 +52,17 @@ export async function draftMaterials(
         }),
       ]);
       const r = response as {
-        response?: string;
+        response?: unknown;
         choices?: { message?: { content?: string } }[];
       };
-      const text = r.response ?? r.choices?.[0]?.message?.content ?? "";
-      const parsed = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ""));
+      // Workers AI may return an already parsed array in `response` alongside
+      // the OpenAI-style choices. Validate either form before using any prose.
+      const text = typeof r.response === "string"
+        ? r.response
+        : r.choices?.[0]?.message?.content ?? "";
+      const parsed = Array.isArray(r.response)
+        ? r.response
+        : JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ""));
       if (Array.isArray(parsed) && parsed.length === 3 && parsed.every(safe)) {
         prose = parsed;
         method = "workers-ai";

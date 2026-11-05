@@ -24,7 +24,9 @@ Browser returns, webhook deliveries and polling may arrive in any order. We keep
 
 ## Accomplishments
 
-The initial private-service E2E test produced a real USD 9.90 Sandbox capture and a passed/captured receipt. A second real MCP-created service order was captured with verified webhook delivery and exposed the missing delivery-tool step. This release adds that step, problem tracking, AA requests and judge instructions. Full release evidence is recorded separately after deployment; untested paths must not be described as complete.
+The deployed MCP release completed a real USD 9.90 Sandbox service capture and delivered three drafts only after a passed/captured receipt. It also captured separate USD 60 Sandbox settlement orders for Leo and Ava; Maya received no payment request. All three orders have signature-verified approval and capture webhook records. Repeated verification and settlement checks reused the same records, and the two member payments created no service-fee Charges.
+
+The paid delivery used the documented template fallback. We diagnosed malformed model output, added a three-string JSON schema, and tested the exact updated drafting function with a real remote Workers AI binding: it returned AI-written requests in under two seconds. That separate AI test did not create another payment or replace a verified delivery. The release passes 57 offline tests. Case tracking remains prepared because the fictional merchants were never contacted; confirmed transitions are covered offline.
 
 ## What we learned
 
@@ -32,7 +34,7 @@ A useful assistant needs evidence for what changed, clear state for what has not
 
 ## What's next
 
-Complete and document release acceptance with dedicated judge Sandbox buyers, then improve parsing of user-provided orders, recovery suggestions and broader itinerary support. There are no live airline integrations, production payments or automated refunds in this demo.
+Add dedicated judge Sandbox buyers, record a complete AI-assisted judging walkthrough, then improve parsing of user-provided orders, recovery suggestions and broader itinerary support. There are no live airline integrations, production payments or automated refunds in this demo.
 
 ## Built with
 

@@ -41,5 +41,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Offline tests
+        run: npm test
+
+      - name: Cloudflare identity
+        run: npx wrangler whoami
+
       - name: Deploy
         run: npx wrangler deploy

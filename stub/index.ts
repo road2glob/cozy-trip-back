@@ -1,3 +1,4 @@
+import {completeFetch} from './complete';
 // Deterministic fake of the payment & verification service contract (handoff section 5.4).
 // Called in-process by paymentService only when TASKPASS_TRANSPORT=stub. It is not the real service:
 // no verification engine, no PayPal, no outbound requests, never captures, never reaches `verified`.
@@ -404,7 +405,7 @@ app.post("/v1/paypal/confirm-cancel", confirm);
 
 const notInStub = (c: StubContext) => err(c, 501, "stub-not-implemented", "Not part of the phase 1 stub");
 app.post("/v1/runs/:runId/output", notInStub);
-app.post("/v1/runs/:runId/charge/reconcile", notInStub);
+app.post("/v1/runs/:runId/charge/reconcile", async(c)=>{const r=await store.runById(c.env.DB,c.req.param('runId'));if(!r)return err(c,404,'not-found','Unknown run');const ch=await store.chargeByRun(c.env.DB,r.run_id);if(!ch)return err(c,409,'payment-required','No payment order exists');return c.json({runId:r.run_id,state:r.state,charge:buildCharge(ch)})});
 app.post("/v1/settlement-orders", notInStub);
 app.get("/v1/settlement-orders/:id", notInStub);
 app.post("/v1/settlement-orders/:id/reconcile", notInStub);
@@ -412,5 +413,6 @@ app.post("/v1/settlement-orders/:id/reconcile", notInStub);
 app.notFound((c) => err(c, 404, "not-found", "Unknown resource"));
 
 export async function stubFetch(request: Request, env: Env): Promise<Response> {
-  return app.fetch(request, env);
+  const completed=await completeFetch(request,env);
+  return completed??app.fetch(request, env);
 }

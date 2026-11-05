@@ -66,7 +66,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
   const d = await getTripDetail(env.DB, userId, args.trip_id);
   if (!d) return fail("not_found", "No trip with that trip_id for this user. Import the sample trip first.");
   const ev = d.demoEvent;
-  if (!ev || ev.kind !== "flight_cancellation" || ev.state !== "armed") return fail("not_found", "This trip has no armed demo event to quote against.");
+  if (!ev || ev.kind !== "flight_cancellation" || ev.state !== "fired") return fail("not_found", "No confirmed issue exists. Preview and confirm detect_impact before requesting a paid service.");
   if (args.issue_id && args.issue_id !== ev.event_id) return fail("not_found", "issue_id does not belong to this trip.");
 
   let workflow: Workflow;

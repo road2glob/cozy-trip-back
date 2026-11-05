@@ -1,3 +1,6 @@
+import {fixtureWrite} from '../stub/complete';
+import {hmacHex} from '../stub/crypto';
+import * as detectImpact from '../src/tools/detectImpact';
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
 import type { Env } from "../src/env";
@@ -42,6 +45,7 @@ describe("return pages", () => {
     const { env } = testEnv();
     const ctx = toolCtx(env);
     const tripId = (((await importOrders.run(ctx, { mode: "sample" })).structuredContent) as any).trip_id;
+    const preview=(await detectImpact.run(ctx,{trip_id:tripId})).structuredContent as any; await detectImpact.run(ctx,{trip_id:tripId,confirmation_code:preview.confirmation_code});
     const q = (await quoteService.run(ctx, { trip_id: tripId })).structuredContent as any;
     const p = (await createServicePayment.run(ctx, { trip_id: tripId, run_id: q.runId, confirmation_code: q.confirmation_code }))
       .structuredContent as any;
@@ -66,3 +70,5 @@ describe("return pages", () => {
     expect(SENTENCES.unconfirmed).toBe("PayPal Sandbox has not confirmed a capture. Return to your AI chat and say 'check my payment'.");
   });
 });
+
+it('payment_id return/cancel preserve the captured settlement result and never say nothing charged',async()=>{const {env}=testEnv();const id='pay_test';await fixtureWrite(env.DB,'settlement:'+id,{paymentId:id,amountMinor:6000,currency:'USD',mode:'sandbox',state:'captured',paypalOrderId:'STUB',paypalCaptureId:'STUB-CAP',paypalRequestId:id,approveUrl:null,disclaimer:'Sandbox demo'});const token=(await hmacHex(env.TASKPASS_PRODUCT_TOKEN,'settlement-return:'+id)).slice(0,32);for(const route of ['return','cancel']){const result=await page(env,`/pay/${route}?payment_id=${id}&return_token=${token}`);expect(sentencesIn(result.html)).toEqual(['returned'])}});

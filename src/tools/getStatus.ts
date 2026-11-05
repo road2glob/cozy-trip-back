@@ -1,3 +1,4 @@
+import {splitStatus} from '../domain/settlements';
 import { z } from "zod";
 import { getTripDetail, listTripIds, type TripDetail } from "../domain/trips";
 import { listServiceOrders, updateServiceOrder } from "../domain/serviceOrders";
@@ -61,9 +62,12 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
   }
 
   const trips = details.map(tripSummary);
-  const structured = { trips, runs, run_count: runs.length, split_payments: [] as unknown[] };
+  const payments=await splitStatus(ctx,args.trip_id);
+  const cases=await (args.trip_id?env.DB.prepare('SELECT run_id,state,drafting_method,report_json FROM case_progress WHERE user_id=?1 AND trip_id=?2').bind(userId,args.trip_id):env.DB.prepare('SELECT run_id,state,drafting_method,report_json FROM case_progress WHERE user_id=?1').bind(userId)).all<{run_id:string;state:string;drafting_method:string;report_json:string|null}>();
+  const caseViews=cases.results.map(c=>({runId:c.run_id,trackingState:c.state,draftingMethod:c.drafting_method,report:c.report_json?JSON.parse(c.report_json):null,available_actions:['update_case_status']}));
+  const structured = { trips, runs, run_count: runs.length, split_payments: payments,...(caseViews.length?{service_orders:caseViews}:{}) };
 
-  if (trips.length === 0) return ok("No trips yet and no runs.", structured);
+  if (trips.length === 0) return ok("No trips yet and no runs. Import orders to begin.", {...structured,available_actions:["import_orders"]});
 
   const lines = trips.map(
     (t) => `${t.title} (${t.trip_id}): ${t.start_date} to ${t.end_date}, ${t.booking_count} bookings, state ${t.state}.`,
@@ -78,5 +82,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
     }
     if (isStub(env)) lines.push(STUB_NOTICE);
   }
+  for(const p of payments)lines.push(`${p.name}: USD 60 ${p.state}${p.prompt?' — payment requested':' — no payment prompt'}`);
+  for(const c of caseViews)lines.push(`Service case ${c.runId}: ${c.trackingState}; user-reported follow-up only.`);
   return ok(lines.join("\n"), structured);
 }

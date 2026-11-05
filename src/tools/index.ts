@@ -1,3 +1,11 @@
+import * as splitStatus from './splitStatus';
+import * as updateCaseStatus from "./updateCaseStatus";
+import * as createSplitPayments from "./createSplitPayments";
+import * as quoteSplit from "./quoteSplit";
+import * as planOptions from "./planOptions";
+import * as detectImpact from "./detectImpact";
+import * as reconcileTrip from "./reconcileTrip";
+import * as verifyPayment from "./verifyPayment";
 import type { McpServer, StandardSchemaWithJSON, ToolCallback } from "@modelcontextprotocol/server";
 import { getMcpAuthContext } from "agents/mcp/server";
 import type { Env } from "../env";
@@ -55,9 +63,18 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
 }
 
 // Phase 1 registers only these four tools. No resources, prompts or ui:// apps.
-export function registerTools(server: McpServer, env: Env): void {
+export function registerTools(server: McpServer, env: Env, caseAvailable=false): void {
   register(server, env, getStatus);
   register(server, env, importOrders);
   register(server, env, quoteService);
   register(server, env, createServicePayment);
+  register(server, env, verifyPayment);
+  register(server, env, reconcileTrip);
+  register(server, env, detectImpact);
+  register(server, env, planOptions);
+  register(server, env, quoteSplit);
+  register(server, env, createSplitPayments);
+  register(server, env, splitStatus);
+  if(caseAvailable) register(server, env, updateCaseStatus);
+
 }

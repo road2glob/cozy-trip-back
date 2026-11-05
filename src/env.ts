@@ -2,6 +2,8 @@ export type TaskpassTransport = "stub" | "binding" | "https";
 
 export interface Env {
   DB: D1Database;
+  /** Draft prose only; optional in offline tests. */
+  AI?: Ai;
   /** Service Binding to the payment & verification service; unused in stub mode */
   TASKPASS: Fetcher;
   TASKPASS_TRANSPORT: TaskpassTransport;

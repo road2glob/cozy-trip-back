@@ -55,6 +55,8 @@ payRoutes.get("/cancel", async (c) => {
   if (body) {
     try {
       const result = await confirmCancel(c.env, body);
+      const state='charge' in result?result.charge.state:result.state;
+      if(state==='captured'||state==='refund-required')return render('returned');
       logEvent({ event: "pay_cancel", chargeId: "charge" in result ? result.charge.chargeId : undefined, outcome: "confirmed" });
     } catch (e) {
       logEvent({ event: "pay_cancel", outcome: "confirm_failed", http_status: (e as { status?: number }).status });

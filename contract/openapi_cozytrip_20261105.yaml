@@ -1,0 +1,1874 @@
+openapi: 3.1.0
+info:
+  title: Payment & verification service
+  version: "20261104.2"
+  description: "Payment & verification service contract consumed by CozyTrip. Reached via
+    a Cloudflare Service Binding named TASKPASS; requests carry `Authorization: Bearer
+    <product token>`."
+servers:
+  - url: https://taskpass.internal
+    description: Service Binding; not publicly reachable
+security:
+  - ProductBearer: []
+paths:
+  /v1/workflows/{workflowId}:
+    get:
+      summary: Read workflow
+      operationId: get_Read_workflow
+      description: ""
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/runs:
+    post:
+      summary: Create run
+      operationId: post_Create_run
+      description: Replay preserves original 201 JSON. Key scope is product; canonical full
+        body mismatch returns 409.
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedRun"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRunRequest"
+  /v1/runs/{runId}:
+    get:
+      summary: Read run
+      operationId: get_Read_run
+      description: Output is null unless state is verified. Poll includes all five steps.
+        Pending approvals expire lazily at 30 minutes.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/runs/{runId}/approval:
+    post:
+      summary: Decide approval
+      operationId: post_Decide_approval
+      description: ""
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approvalId:
+                  type: string
+                approvalToken:
+                  type: string
+                decision:
+                  type: string
+                  enum:
+                    - approved
+                    - rejected
+                actorType:
+                  type: string
+                  enum:
+                    - end-user
+                    - operator
+                actorRef:
+                  type: string
+                comment:
+                  type: string
+                  maxLength: 280
+              required:
+                - approvalId
+                - approvalToken
+                - decision
+                - actorType
+                - actorRef
+  /v1/runs/{runId}/charge:
+    post:
+      summary: Create service charge
+      operationId: post_Create_service_charge
+      description: Body is normally {}. Price comes only from registry, USD 990; submitted
+        amount is ignored. One order per run. Replayed key preserves original response
+        and status; a different key for existing order returns 200.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Charge"
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Charge"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /v1/runs/{runId}/output:
+    post:
+      summary: Submit output
+      operationId: post_Submit_output
+      description: 200 {runId,state,verification}; schema or predicate failure is state
+        failed, not an HTTP error. Caller must inspect fields. Paid output requires
+        captured. Only identical terminal output may replay.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  state:
+                    type: string
+                    enum:
+                      - awaiting-approval
+                      - awaiting-payment
+                      - running
+                      - verifying
+                      - verified
+                      - failed
+                      - rejected
+                      - cancelled
+                  verification:
+                    $ref: "#/components/schemas/Verification"
+                required:
+                  - runId
+                  - state
+                  - verification
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutputRequest"
+  /v1/runs/{runId}/receipt:
+    get:
+      summary: Read terminal receipt
+      operationId: get_Read_terminal_receipt
+      description: 409 receipt-not-ready before terminal state. Successful paid result
+        requires passed and captured.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Receipt"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/paypal/confirm-return:
+    post:
+      summary: confirm-return
+      operationId: post_confirm-return
+      description: Service Binding only. Exactly one of charge_id or payment_id, plus
+        return_token. payment_id is an opaque settlement ID; never accept caller PayPal
+        order IDs. Return reconciles; cancel never captures an uncaptured order or marks
+        refunded. Response is ConfirmResult for charge_id, SettlementOrder for
+        payment_id.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ConfirmResult"
+                  - $ref: "#/components/schemas/SettlementOrder"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required:
+                    - charge_id
+                    - return_token
+                  properties:
+                    charge_id:
+                      type: string
+                    return_token:
+                      type: string
+                  not:
+                    required:
+                      - payment_id
+                - type: object
+                  required:
+                    - payment_id
+                    - return_token
+                  properties:
+                    payment_id:
+                      type: string
+                    return_token:
+                      type: string
+                  not:
+                    required:
+                      - charge_id
+  /v1/paypal/confirm-cancel:
+    post:
+      summary: confirm-cancel
+      operationId: post_confirm-cancel
+      description: Service Binding only. Exactly one of charge_id or payment_id, plus
+        return_token. payment_id is an opaque settlement ID; never accept caller PayPal
+        order IDs. Return reconciles; cancel never captures an uncaptured order or marks
+        refunded. Response is ConfirmResult for charge_id, SettlementOrder for
+        payment_id.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ConfirmResult"
+                  - $ref: "#/components/schemas/SettlementOrder"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required:
+                    - charge_id
+                    - return_token
+                  properties:
+                    charge_id:
+                      type: string
+                    return_token:
+                      type: string
+                  not:
+                    required:
+                      - payment_id
+                - type: object
+                  required:
+                    - payment_id
+                    - return_token
+                  properties:
+                    payment_id:
+                      type: string
+                    return_token:
+                      type: string
+                  not:
+                    required:
+                      - charge_id
+  /v1/runs/{runId}/charge/reconcile:
+    post:
+      summary: Reconcile service charge
+      operationId: post_Reconcile_service_charge
+      description: Body is {}. Repeatable; does not create another charge. Response is
+        ConfirmResult.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmResult"
+        "400":
+          description: Invalid request or signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid product credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid approval or return token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: State conflict / idempotency-conflict / operation-in-progress; retry
+            transient contention
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body exceeds 256 KiB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal failure; no sensitive details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: PayPal unavailable; safely retry same operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid sandbox configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /v1/settlement-orders:
+    post:
+      operationId: createSettlement
+      summary: Create USD 60 Sandbox settlement order
+      description: Idempotent by paymentId (1–32 ASCII alphanumeric, underscore, or hyphen). A
+        repeated paymentId returns the existing order. Only amountMinor=6000 and USD are
+        accepted. Status is observed by polling GET.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - paymentId
+                - amountMinor
+              properties:
+                paymentId:
+                  type: string
+                  pattern: ^[A-Za-z0-9_-]{1,32}$
+                amountMinor:
+                  const: 6000
+                currency:
+                  const: USD
+                mode:
+                  const: sandbox
+      responses:
+        "200":
+          description: Settlement order. Does not create a Charge, Run, or Receipt.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementOrder"
+        "201":
+          description: Settlement order. Does not create a Charge, Run, or Receipt.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementOrder"
+        "400":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/settlement-orders/{id}:
+    get:
+      operationId: readSettlement
+      summary: Poll settlement order
+      description: id is paymentId. Does not capture.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Settlement order. Does not create a Charge, Run, or Receipt.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementOrder"
+        "400":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/settlement-orders/{id}/reconcile:
+    post:
+      operationId: reconcileSettlement
+      summary: Reconcile USD 60 settlement
+      description: id is paymentId. Body is {}. One capture when the order is approved. A
+        repeated call does not capture again. Response is a SettlementOrder.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Settlement order. Does not create a Charge, Run, or Receipt.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementOrder"
+        "400":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Invalid input / authentication / missing resource / contention or upstream
+            error; see error.code. Contention is retryable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  securitySchemes:
+    ProductBearer:
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required:
+            - code
+            - message
+      required:
+        - error
+    Approval:
+      type: object
+      properties:
+        approvalId:
+          type: string
+        runId:
+          type: string
+        gate:
+          type: string
+          enum:
+            - before-execute
+            - before-charge
+        state:
+          type: string
+          enum:
+            - pending
+            - approved
+            - rejected
+            - expired
+        approvalToken:
+          type: string
+        expiresAt:
+          type: string
+        actorType:
+          type: string
+        actorRef:
+          type: string
+        decidedAt:
+          type: string
+        comment:
+          type: string
+          maxLength: 280
+      required:
+        - approvalId
+        - gate
+        - state
+        - approvalToken
+        - expiresAt
+    Step:
+      type: object
+      properties:
+        stepId:
+          type: string
+        runId:
+          type: string
+        seq:
+          type: integer
+        name:
+          type: string
+          enum:
+            - approval
+            - payment
+            - execute
+            - verify
+            - receipt
+        state:
+          type: string
+          enum:
+            - pending
+            - running
+            - succeeded
+            - failed
+            - skipped
+        startedAt:
+          anyOf:
+            - type: string
+            - type: "null"
+        finishedAt:
+          anyOf:
+            - type: string
+            - type: "null"
+        detail:
+          type: string
+      required:
+        - stepId
+        - runId
+        - seq
+        - name
+        - state
+        - startedAt
+        - finishedAt
+        - detail
+    Charge:
+      type: object
+      properties:
+        chargeId:
+          type: string
+        runId:
+          type: string
+        productId:
+          type: string
+        state:
+          type: string
+          enum:
+            - awaiting-payment
+            - captured
+            - failed
+            - void
+            - refund-required
+            - refunded
+        amountMinor:
+          const: 990
+        currency:
+          const: USD
+        approveUrl:
+          anyOf:
+            - type: string
+            - type: "null"
+        paypalOrderId:
+          anyOf:
+            - type: string
+            - type: "null"
+        paypalCaptureId:
+          anyOf:
+            - type: string
+            - type: "null"
+        paypalRequestId:
+          type: string
+        paypalEnvironment:
+          const: sandbox
+        createdAt:
+          type: string
+        capturedAt:
+          anyOf:
+            - type: string
+            - type: "null"
+      required:
+        - chargeId
+        - state
+        - amountMinor
+        - currency
+        - approveUrl
+        - paypalOrderId
+        - paypalEnvironment
+    Verification:
+      type: object
+      properties:
+        verificationId:
+          type: string
+        runId:
+          type: string
+        state:
+          type: string
+          enum:
+            - passed
+            - failed
+        method:
+          const: json-schema
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              passed:
+                type: boolean
+              detail:
+                type: string
+            required:
+              - name
+              - passed
+              - detail
+        outputDigest:
+          type: string
+        verifiedAt:
+          type: string
+      required:
+        - verificationId
+        - runId
+        - state
+        - method
+        - checks
+        - outputDigest
+        - verifiedAt
+    Receipt:
+      type: object
+      properties:
+        receiptId:
+          type: string
+        runId:
+          type: string
+        state:
+          const: issued
+        verificationState:
+          type: string
+          enum:
+            - passed
+            - failed
+            - not-run
+        chargeOutcome:
+          type: string
+          enum:
+            - none
+            - captured
+            - refund-required
+            - refunded
+            - void
+        chargeId:
+          anyOf:
+            - type: string
+            - type: "null"
+        amountMinor:
+          type: integer
+          minimum: 0
+        currency:
+          const: USD
+        inputDigest:
+          type: string
+        outputDigest:
+          anyOf:
+            - type: string
+            - type: "null"
+        reason:
+          anyOf:
+            - type: string
+            - type: "null"
+        issuedAt:
+          type: string
+        mode:
+          const: sandbox
+      required:
+        - receiptId
+        - runId
+        - state
+        - verificationState
+        - chargeOutcome
+        - chargeId
+        - amountMinor
+        - currency
+        - inputDigest
+        - outputDigest
+        - reason
+        - issuedAt
+        - mode
+    Workflow:
+      type: object
+      properties:
+        schemaVersion:
+          const: "20261104"
+        mode:
+          const: sandbox
+        workflowId:
+          type: string
+        productId:
+          const: cozytrip
+        version:
+          type: string
+        title:
+          type: string
+        price:
+          type: object
+          properties:
+            currency:
+              const: USD
+            amountMinor:
+              type: integer
+              enum:
+                - 0
+                - 990
+            unit:
+              const: verified-result
+          required:
+            - currency
+            - amountMinor
+            - unit
+        approvalGates:
+          type: array
+          items:
+            type: string
+            enum:
+              - before-execute
+              - before-charge
+        status:
+          type: string
+          enum:
+            - active
+            - retired
+      required:
+        - schemaVersion
+        - mode
+        - workflowId
+        - productId
+        - version
+        - title
+        - price
+        - approvalGates
+        - status
+    Run:
+      type: object
+      properties:
+        schemaVersion:
+          const: "20261104"
+        mode:
+          const: sandbox
+        runId:
+          type: string
+        workflowId:
+          type: string
+        workflowVersion:
+          type: string
+        productId:
+          type: string
+        subjectId:
+          type: string
+        idempotencyKey:
+          type: string
+        input:
+          type: object
+        inputDigest:
+          type: string
+        state:
+          type: string
+          enum:
+            - awaiting-approval
+            - awaiting-payment
+            - running
+            - verifying
+            - verified
+            - failed
+            - rejected
+            - cancelled
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/Step"
+        output:
+          anyOf:
+            - type: object
+            - type: "null"
+        outputDigest:
+          anyOf:
+            - type: string
+            - type: "null"
+        approvalId:
+          anyOf:
+            - type: string
+            - type: "null"
+        chargeId:
+          anyOf:
+            - type: string
+            - type: "null"
+        verificationId:
+          anyOf:
+            - type: string
+            - type: "null"
+        receiptId:
+          anyOf:
+            - type: string
+            - type: "null"
+        error:
+          anyOf:
+            - type: object
+              properties:
+                code:
+                  type: string
+                message:
+                  type: string
+              required:
+                - code
+                - message
+            - type: "null"
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - schemaVersion
+        - mode
+        - runId
+        - workflowId
+        - workflowVersion
+        - productId
+        - subjectId
+        - idempotencyKey
+        - input
+        - inputDigest
+        - state
+        - steps
+        - output
+        - outputDigest
+        - approvalId
+        - chargeId
+        - verificationId
+        - receiptId
+        - error
+        - createdAt
+        - updatedAt
+    CreatedRun:
+      type: object
+      properties:
+        schemaVersion:
+          const: "20261104"
+        mode:
+          const: sandbox
+        runId:
+          type: string
+        state:
+          type: string
+          enum:
+            - awaiting-approval
+            - awaiting-payment
+            - running
+            - verifying
+            - verified
+            - failed
+            - rejected
+            - cancelled
+        approval:
+          anyOf:
+            - $ref: "#/components/schemas/Approval"
+            - type: "null"
+        output:
+          type: "null"
+        chargeId:
+          type: "null"
+      required:
+        - schemaVersion
+        - mode
+        - runId
+        - state
+        - approval
+        - output
+        - chargeId
+    ConfirmResult:
+      type: object
+      properties:
+        runId:
+          type: string
+        state:
+          type: string
+          enum:
+            - awaiting-approval
+            - awaiting-payment
+            - running
+            - verifying
+            - verified
+            - failed
+            - rejected
+            - cancelled
+        charge:
+          $ref: "#/components/schemas/Charge"
+      required:
+        - runId
+        - state
+        - charge
+    IssueInput:
+      type: object
+      properties:
+        tripId:
+          type: string
+          minLength: 1
+        bookingIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          minItems: 1
+          uniqueItems: true
+      required:
+        - tripId
+        - bookingIds
+      additionalProperties: false
+      description: 待 CozyTrip 确认：本地最小 Schema，字段名保持不变。
+      x-cozytrip-confirmation: pending
+    IssueOutput:
+      type: object
+      properties:
+        affectedBookingIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          uniqueItems: true
+        summary:
+          type: string
+          minLength: 1
+      required:
+        - affectedBookingIds
+      additionalProperties: false
+      description: 待 CozyTrip 确认：本地最小 Schema，字段名保持不变。
+      x-cozytrip-confirmation: pending
+    AftersalesInput:
+      type: object
+      properties:
+        tripId:
+          type: string
+          minLength: 1
+        bookingIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+          minItems: 1
+          uniqueItems: true
+        issueId:
+          type: string
+          minLength: 1
+      required:
+        - tripId
+        - bookingIds
+        - issueId
+      additionalProperties: false
+    AftersalesOutput:
+      type: object
+      properties:
+        serviceOrderId:
+          type: string
+          minLength: 1
+        trackingState:
+          const: prepared
+        materials:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                minLength: 1
+              text:
+                type: string
+                minLength: 1
+            required:
+              - kind
+              - text
+            additionalProperties: false
+      required:
+        - serviceOrderId
+        - trackingState
+        - materials
+      additionalProperties: false
+    SplitInput:
+      type: object
+      properties:
+        tripId:
+          type: string
+          minLength: 1
+        totalMinor:
+          type: integer
+          minimum: 0
+        participantIds:
+          type: array
+          minItems: 3
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+          description: CozyTrip 传入 Maya / Leo / Ava 对应的不透明 participantIds；三人合计 18000，每人 6000。
+      required:
+        - tripId
+        - totalMinor
+        - participantIds
+      additionalProperties: false
+      description: 待 CozyTrip 确认：本地最小 Schema，字段名保持不变。
+      x-cozytrip-confirmation: pending
+    SplitOutput:
+      type: object
+      properties:
+        shares:
+          type: array
+          items:
+            type: object
+            properties:
+              participantId:
+                type: string
+                minLength: 1
+              amountMinor:
+                type: integer
+            required:
+              - participantId
+              - amountMinor
+            additionalProperties: false
+        totalMinor:
+          type: integer
+      required:
+        - shares
+        - totalMinor
+      additionalProperties: false
+      description: 待 CozyTrip 确认：本地最小 Schema，字段名保持不变。
+      x-cozytrip-confirmation: pending
+    CreateRunRequest:
+      oneOf:
+        - type: object
+          properties:
+            workflowId:
+              const: cozytrip.issue.assess
+            subjectId:
+              type: string
+              minLength: 1
+            input:
+              $ref: "#/components/schemas/IssueInput"
+            mode:
+              const: sandbox
+          required:
+            - workflowId
+            - subjectId
+            - input
+        - type: object
+          properties:
+            workflowId:
+              const: cozytrip.aftersales.deliver
+            subjectId:
+              type: string
+              minLength: 1
+            input:
+              $ref: "#/components/schemas/AftersalesInput"
+            mode:
+              const: sandbox
+          required:
+            - workflowId
+            - subjectId
+            - input
+        - type: object
+          properties:
+            workflowId:
+              const: cozytrip.split.calculate
+            subjectId:
+              type: string
+              minLength: 1
+            input:
+              $ref: "#/components/schemas/SplitInput"
+            mode:
+              const: sandbox
+          required:
+            - workflowId
+            - subjectId
+            - input
+    OutputRequest:
+      type: object
+      properties:
+        output:
+          oneOf:
+            - $ref: "#/components/schemas/IssueOutput"
+            - $ref: "#/components/schemas/AftersalesOutput"
+            - $ref: "#/components/schemas/SplitOutput"
+      required:
+        - output
+      additionalProperties: false
+    SettlementOrder:
+      type: object
+      required:
+        - paymentId
+        - amountMinor
+        - currency
+        - mode
+        - state
+        - paypalOrderId
+        - paypalCaptureId
+        - approveUrl
+        - paypalRequestId
+        - disclaimer
+      properties:
+        paymentId:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{1,32}$
+        amountMinor:
+          const: 6000
+        currency:
+          const: USD
+        mode:
+          const: sandbox
+        state:
+          type: string
+          enum:
+            - awaiting-payment
+            - captured
+            - failed
+            - void
+        paypalOrderId:
+          type:
+            - string
+            - "null"
+        paypalCaptureId:
+          type:
+            - string
+            - "null"
+        paypalRequestId:
+          type: string
+        approveUrl:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
+        capturedAt:
+          type:
+            - string
+            - "null"
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        disclaimer:
+          const: "Sandbox demo: funds go to a sandbox account, not a real person-to-person
+            transfer."

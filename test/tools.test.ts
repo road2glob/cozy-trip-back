@@ -1,3 +1,4 @@
+import * as detectImpact from '../src/tools/detectImpact';
 import { describe, expect, it } from "vitest";
 import * as getStatus from "../src/tools/getStatus";
 import * as importOrders from "../src/tools/importOrders";
@@ -14,7 +15,7 @@ describe("phase 1 tool flow (stub transport)", () => {
     const { env } = testEnv();
     const r = await getStatus.run(toolCtx(env), {});
     expect(r.isError).toBeUndefined();
-    expect(r.structuredContent).toEqual({ trips: [], runs: [], run_count: 0, split_payments: [] });
+    expect(r.structuredContent).toEqual({ trips: [], runs: [], run_count: 0, split_payments: [], available_actions:["import_orders"] });
     expect(text(r)).not.toMatch(/seattle|paypal|usd|\$|9\.90|split/i);
   });
 
@@ -64,6 +65,7 @@ describe("phase 1 tool flow (stub transport)", () => {
     const ctx = toolCtx(env);
     const tripId = (((await importOrders.run(ctx, { mode: "sample" })).structuredContent) as any).trip_id;
 
+    const preview=(await detectImpact.run(ctx,{trip_id:tripId})).structuredContent as any; await detectImpact.run(ctx,{trip_id:tripId,confirmation_code:preview.confirmation_code});
     const quote = await quoteService.run(ctx, { trip_id: tripId });
     const q = quote.structuredContent as any;
     expect(quote.isError).toBeUndefined();
@@ -121,6 +123,7 @@ describe("phase 1 tool flow (stub transport)", () => {
     const { env, raw } = testEnv();
     const ctx = toolCtx(env);
     const tripId = (((await importOrders.run(ctx, { mode: "sample" })).structuredContent) as any).trip_id;
+    const preview=(await detectImpact.run(ctx,{trip_id:tripId})).structuredContent as any; await detectImpact.run(ctx,{trip_id:tripId,confirmation_code:preview.confirmation_code});
     const q = (await quoteService.run(ctx, { trip_id: tripId })).structuredContent as any;
     raw.prepare("UPDATE service_orders SET expires_at = '2000-01-01T00:00:00.000Z'").run();
     raw.prepare("UPDATE stub_runs SET approval_expires_at = '2000-01-01T00:00:00.000Z'").run();
@@ -135,7 +138,7 @@ describe("phase 1 tool flow (stub transport)", () => {
     const { env } = testEnv();
     const tripId = (((await importOrders.run(toolCtx(env, "usr_a"), { mode: "sample" })).structuredContent) as any).trip_id;
     const other = toolCtx(env, "usr_b");
-    expect((await getStatus.run(other, {})).structuredContent).toEqual({ trips: [], runs: [], run_count: 0, split_payments: [] });
+    expect((await getStatus.run(other, {})).structuredContent).toEqual({ trips: [], runs: [], run_count: 0, split_payments: [], available_actions:["import_orders"] });
     expect(((await getStatus.run(other, { trip_id: tripId })).structuredContent as any).error.code).toBe("not_found");
     expect(((await quoteService.run(other, { trip_id: tripId })).structuredContent as any).error.code).toBe("not_found");
   });

@@ -49,7 +49,7 @@ describe("MCP resource protocol and PayPal boundary", () => {
       expect(client.getServerCapabilities()?.extensions?.["io.modelcontextprotocol/ui"]).toEqual({ mimeTypes: ["text/html;profile=mcp-app"] });
       const { tools } = await client.listTools();
       const linked = tools.filter(t => t._meta?.ui).map(t => t.name).sort();
-      expect(linked).toEqual(["create_service_payment", "detect_impact", "get_status", "import_orders", "plan_options", "quote_service", "verify_payment"]);
+      expect(linked).toEqual(["create_service_payment", "create_split_payments", "detect_impact", "get_status", "import_orders", "plan_options", "quote_service", "quote_split", "reconcile_trip", "split_status", "verify_payment"]);
       for (const t of tools.filter(t => linked.includes(t.name))) {
         expect(t._meta?.ui).toEqual({ resourceUri: CARD_URI });
         expect(t._meta?.["ui/resourceUri"]).toBe(CARD_URI);

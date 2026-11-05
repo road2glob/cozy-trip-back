@@ -25,6 +25,12 @@ Judge A is used for the release pre-payment acceptance check; choose B or C for 
 
 Use dedicated judge-only Sandbox buyers. The team’s personal test-account credentials are not included. This project uses Sandbox only; do not use a real PayPal account or payment card.
 
+## Try the sample in chat
+
+After connecting, say “Use CozyTrip to organize my trip.” On an empty account, choose the sample import. On a returning account, the assistant opens your existing trip. Ask “Which dates should I remember?” to preview the demo reminders. To try expense splitting directly, ask “Split the sample airport pickup.” Leo and Ava each owe USD 60 and Maya owes zero.
+
+For the calendar demo, choose a writable calendar in the host, review the destinations and local times, and confirm the sample entries. Ask to see the plan again to check the recorded results. If you change calendars, the assistant shows which old entries to remove. After the calendar confirms removal, choose **Continue calendar move** to review and add the entries in the destination.
+
 ## Judge path: six steps, about five minutes
 
 1. Connect MCP Inspector to the hosted MCP URL using a judge Bearer token. Call `get_status`: a fresh identity has no trip, payment or case.
@@ -69,21 +75,63 @@ PayPal transactions, once approved and captured, are real **Sandbox** transactio
 
 `get_status`, `import_orders`, `reconcile_trip`, `detect_impact`, `plan_options`, `quote_service`, `create_service_payment`, `verify_payment`, `quote_split`, `create_split_payments`, `split_status`.
 
-`update_case_status` appears for a user only after a paid verified delivery. Calling it earlier returns `delivery_required`. No orders means only the import entry; no confirmed issue means no service-purchase code; no quote/confirmation means no pay URL; zero-due and captured members have no payment entry.
+`update_case_status` appears for a user only after a paid verified delivery. Calling it earlier returns `delivery_required`. `plan_reminders` and `record_reminder_results` appear once migration `0003_reminders.sql` has been applied. No orders means only the import entry; no confirmed issue means no service-purchase code; no quote/confirmation means no pay URL; zero-due and captured members have no payment entry.
+
+### Demo reminders
+
+CozyTrip plans the reminders and remembers what was written. It holds no calendar access: the host's own calendar tool does the writing, and only after the person agrees.
+
+1. `plan_reminders` with `trip_id` shows the whole plan: what, when, how far ahead, trip-local time with Beijing time beside it, which calendar, and the `CozyTrip Demo / 样本行程` label on every entry. It can be adjusted with `notify_time`, `leave_home_at`, `follow_up_at`, `exclude` and `calendar_name`. Nothing is scheduled.
+2. Once the person agrees, the same tool with the returned `confirmation_code` returns `writes` and a `plan_id`. Each is a `create`, an `update` or a `remove`, and the last two carry the recorded event ID. If the host has no calendar tool, the plan stays a plan and the agent says the reminders are not set.
+3. After the host's calendar tool has run, `record_reminder_results` takes that same `plan_id` and records the real outcome per reminder, with the event ID the tool returned. Failures are reported as failed. Results are labeled `host-reported`, since CozyTrip cannot see the calendar itself.
+
+Retries use recorded event IDs. If a receipt arrives for a superseded plan, inspect the actual calendar entries before repeating any write. Only entries reported this way are ever touched. A reminder about unpaid shares goes only to the current user's calendar and is flagged for removal once they are paid; a follow-up reminder ends the same way when the person reports a merchant reply.
+
+The sample's dates are worked out once, at first import (flight seven days later, in the trip's time zone), and stored. Re-reading, re-importing or paying never moves them, and trips imported earlier keep their dates.
+
+### Agent guidance
+
+The `initialize` result carries the product's rules as server instructions (`src/mcp/instructions.ts`). Every tool result then adds a `guidance` field, repeated in its text for hosts that only pass text to the model:
+
+```json
+{
+  "fact": "Quoted at USD 9.90. Not paid, and no PayPal order exists until the person confirms.",
+  "next_steps": [
+    {
+      "when": "the person confirms USD 9.90 for the drafts",
+      "tool": "create_service_payment",
+      "args": { "trip_id": "…", "run_id": "…", "confirmation_code": "…" },
+      "needs_confirmation": true,
+      "card_action": "Confirm USD 9.90"
+    }
+  ],
+  "end": null
+}
+```
+
+`args` are reused as they are. `card_action` is present only on steps a card may offer as a button; steps without it stay in the conversation. `end` is set when no next step remains. Errors without their own guidance point to `get_status`, because an error alone does not prove what happened to an order.
 
 ## In-chat cards (MCP Apps)
 
-Hosts that support MCP Apps (Claude, ChatGPT, VS Code and others) also render a card next to these tools' results; other hosts show the text, which always carries the price, the code and the link. One page, `ui://cozytrip/card.html`, picks its view from the tool's `structuredContent`:
+Hosts that support MCP Apps (Claude, ChatGPT, VS Code and others) also render a card next to these tools' results; other hosts show the text, which always carries the price, the code and the link. One page, `ui://cozytrip/card.html`, picks its view from the tool's `structuredContent` and takes its buttons from `guidance`, so a card only offers what the server allows from that state:
 
-| Tool | Card | Next step in the card |
+| Tool | Card | Main action |
 |---|---|---|
-| `get_status` | Empty ledger, or trips with run steps and split state | Import the sample trip · Refresh |
-| `import_orders` | Trip, bookings, balances | Preview the demo impact |
-| `detect_impact` | Four bookings with status and rule | Confirm the simulation (local code) · Options · Quote |
-| `plan_options` | Three recovery options | Get the after-sales quote |
-| `quote_service` | USD 9.90, code expiry or already approved | Approve the service fee |
-| `create_service_payment` | Awaiting payment | Open checkout (host opens the link) · Check my payment |
-| `verify_payment` | Not confirmed yet, or the delivered drafts | Check again |
+| `get_status` | Empty ledger, or where the trip stands (IDs and steps under Details) | Import sample trip, or the next step for that state |
+| `import_orders` | Trip, bookings, total | Next step for that state |
+| `reconcile_trip` | Orders checked | None: read-only |
+| `detect_impact` | Four bookings with status and evidence label | Confirm simulation · See recovery options |
+| `plan_options` | Three recovery options; you can stop here | Get a quote for the drafts (secondary) |
+| `quote_service` | USD 9.90, what it covers, not paid | Confirm USD 9.90 |
+| `create_service_payment` | Order ready, not paid | PayPal button, or Open PayPal, then Check again |
+| `verify_payment` | No verified capture yet, checking, or three drafts marked Draft. Not sent. | Check again, or none |
+| `quote_split` | Three shares, Maya owes USD 0.00 | Confirm split |
+| `create_split_payments`, `split_status` | Each share paid or not; a payment control for each unpaid share | PayPal button for each share, then Check again |
+| `update_case_status` | Your report, for the whole service order | Confirm my report, or none |
+| `plan_reminders` | Demo reminder plan, nothing set yet | Add to my calendar (asks the chat; the card never touches a calendar) |
+| `record_reminder_results` | What the calendar tool reported, per reminder | See reminder plan if any failed, otherwise none |
+
+The in-card PayPal button needs a host whose card document has a real `location.origin`. In a `srcdoc` document it is `null`, so the PayPal SDK can never finish starting; the card goes straight to Open PayPal for the same order. Results by embedding are in `docs/ACCEPTANCE_RESULT_20261105.md`.
 
 Buttons go through the host (`tools/call`, `ui/open-link`) and the server checks every input as it does for the model, so the card adds no new way in. The card is built from `ui/` into `src/ui/cardHtml.generated.ts` (inline CSS and JS only; the default MCP Apps CSP allows nothing else): run `npm run build:ui` after editing `ui/`; a test fails if the generated file is stale. To view cards locally, run `npx @modelcontextprotocol/inspector@latest`, add the Streamable HTTP server `http://localhost:8788/mcp` with header `Authorization: Bearer <token>`, connect and open **Apps**.
 

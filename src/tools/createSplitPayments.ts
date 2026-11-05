@@ -3,9 +3,11 @@ import { getTripDetail } from "../domain/trips";
 import { newId } from "../domain/ids";
 import { operation, validCode } from "../domain/operations";
 import { splitStatus } from "../domain/settlements";
+import { formatUsd } from "../domain/money";
 import { createSettlement } from "../paymentService";
-import { SPLIT_NOTICE } from "./quoteSplit";
-import { fail, ok, type ToolContext } from "./common";
+import { DEMO_NOTICE, PAYEE_NOTICE, SPLIT_NOTICE } from "./quoteSplit";
+import { fail, paymentReality, type ToolContext } from "./common";
+import { guided, sharesGuidance } from "./guidance";
 export const name = "create_split_payments";
 export const description =
   "After local split confirmation, create or reuse two USD 60 Sandbox merchant settlement orders for Leo and Ava. Maya has no order. Funds do not transfer to the person who prepaid.";
@@ -97,21 +99,25 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         .run();
     }
     const payments = await splitStatus(ctx, args.trip_id);
-    return ok(
+    return guided(
       payments
         .map(
           (p) =>
-            `${p.name}: USD 60, ${p.state}${"approveUrl" in p ? " " + p.approveUrl : ""}`,
+            `${p.name}: ${p.display_amount}, ${p.state}${"approveUrl" in p ? " " + p.approveUrl : ""}`,
         )
         .join("\n") +
-        "\nMaya: USD 0 due; no payment order. " +
+        `\nMaya: ${formatUsd(0)} due; no payment order. ` +
         SPLIT_NOTICE,
       {
         trip_id: args.trip_id,
+        reality: paymentReality(ctx.env),
         payments,
-        organizer: { name: "Maya", due_minor: 0, prompt: false },
+        organizer: { name: "Maya", due_minor: 0, display_due: formatUsd(0), prompt: false },
         disclaimer: SPLIT_NOTICE,
+        demo_notice: DEMO_NOTICE,
+        payee_notice: PAYEE_NOTICE,
       },
+      sharesGuidance(args.trip_id, payments),
     );
   });
 }

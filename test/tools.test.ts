@@ -15,7 +15,7 @@ describe("phase 1 tool flow (stub transport)", () => {
     const { env } = testEnv();
     const r = await getStatus.run(toolCtx(env), {});
     expect(r.isError).toBeUndefined();
-    expect(r.structuredContent).toEqual({ trips: [], runs: [], run_count: 0, split_payments: [], available_actions:["import_orders"] });
+    expect(r.structuredContent).toMatchObject({ trips: [], runs: [], run_count: 0, split_payments: [], available_actions:["import_orders"] });
     expect(text(r)).not.toMatch(/seattle|paypal|usd|\$|9\.90|split/i);
   });
 
@@ -138,7 +138,7 @@ describe("phase 1 tool flow (stub transport)", () => {
     const { env } = testEnv();
     const tripId = (((await importOrders.run(toolCtx(env, "usr_a"), { mode: "sample" })).structuredContent) as any).trip_id;
     const other = toolCtx(env, "usr_b");
-    expect((await getStatus.run(other, {})).structuredContent).toEqual({ trips: [], runs: [], run_count: 0, split_payments: [], available_actions:["import_orders"] });
+    expect((await getStatus.run(other, {})).structuredContent).toMatchObject({ trips: [], runs: [], run_count: 0, split_payments: [], available_actions:["import_orders"] });
     expect(((await getStatus.run(other, { trip_id: tripId })).structuredContent as any).error.code).toBe("not_found");
     expect(((await quoteService.run(other, { trip_id: tripId })).structuredContent as any).error.code).toBe("not_found");
   });

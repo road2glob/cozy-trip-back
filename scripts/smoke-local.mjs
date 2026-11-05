@@ -36,21 +36,26 @@ check("no header -> 401", (await rpc("initialize", init, null)).httpStatus === 4
 check("bad token -> 401", (await rpc("initialize", init, "Bearer not-a-real-token")).httpStatus === 401);
 const hello = await rpc("initialize", init);
 check("initialize with demo token", hello.httpStatus === 200 && hello.result?.serverInfo?.name === "cozytrip");
+check(
+  "initialize carries the product rules",
+  hello.result?.instructions?.startsWith("CozyTrip's default entry is organizing a trip") && hello.result.instructions.length <= 2048,
+  `${hello.result?.instructions?.length ?? 0} characters`,
+);
 
 const tools = (await rpc("tools/list", {})).result.tools;
 const names = tools.map((t) => t.name).sort();
-// update_case_status appears only after a paid, verified delivery
+// update_case_status appears only after a paid, verified delivery. Reminder tools need migration 0003.
 const EXPECTED_TOOLS = [
-  "create_service_payment", "create_split_payments", "detect_impact", "get_status", "import_orders", "plan_options",
-  "quote_service", "quote_split", "reconcile_trip", "split_status", "verify_payment",
+  "create_service_payment", "create_split_payments", "detect_impact", "get_status", "import_orders", "plan_options", "plan_reminders",
+  "quote_service", "quote_split", "reconcile_trip", "record_reminder_results", "split_status", "verify_payment",
 ];
-check("the eleven tools for a new user", JSON.stringify(names) === JSON.stringify(EXPECTED_TOOLS), names.join(", "));
+check("the thirteen tools for a new user", JSON.stringify(names) === JSON.stringify(EXPECTED_TOOLS), names.join(", "));
 
 // MCP Apps card: the tools it has views for point at the one ui:// resource (self-contained HTML)
 const CARD_URI = "ui://cozytrip/card.html";
-const CARD_TOOLS = ["create_service_payment", "detect_impact", "get_status", "import_orders", "plan_options", "quote_service", "verify_payment"];
+const CARD_TOOLS = EXPECTED_TOOLS;
 const linked = tools.filter((t) => t._meta?.ui?.resourceUri === CARD_URI).map((t) => t.name).sort();
-check("card linked on exactly the tools it has views for", JSON.stringify(linked) === JSON.stringify(CARD_TOOLS), linked.join(", "));
+check("card linked on every tool", JSON.stringify(linked) === JSON.stringify(CARD_TOOLS), linked.join(", "));
 const card = (await rpc("resources/read", { uri: CARD_URI })).result?.contents?.[0];
 check(
   "card resource: MCP Apps MIME type, inline only",
@@ -68,6 +73,10 @@ check(
     !/seattle|paypal|usd|\$|split/i.test(text(empty)),
   text(empty),
 );
+check(
+  "empty ledger guidance offers only the sample import",
+  JSON.stringify(empty.structuredContent.guidance?.next_steps.map((s) => s.tool)) === '["import_orders"]',
+);
 
 const early = await call("quote_service", { trip_id: "trip_does_not_exist" });
 check("quote before import: no code, no link", early.isError === true && !JSON.stringify(early).includes("confirmation_code\""));
@@ -77,6 +86,18 @@ const imp2 = await call("import_orders", { mode: "sample" });
 const tripId = imp1.structuredContent.trip_id;
 check("sample import: demo_event armed", imp1.structuredContent.demo_event === "armed", tripId);
 check("second import returns the same trip_id", imp2.structuredContent.trip_id === tripId);
+check("new sample starts in the future and keeps its dates", imp1.structuredContent.start_date === imp2.structuredContent.start_date && imp1.structuredContent.start_date > new Date().toISOString().slice(0, 10));
+
+const plan = await call("plan_reminders", { trip_id: tripId });
+check("reminder plan: labeled Demo, future, nothing written", plan.structuredContent.reminders.length >= 4 && plan.structuredContent.reminders.every((r) => r.title.startsWith("CozyTrip Demo / 样本行程") && Date.parse(r.start_utc) > Date.now()) && !("writes" in plan.structuredContent));
+const early2 = await call("record_reminder_results", { trip_id: tripId, results: [{ key: "before-departure-3d", outcome: "created", external_event_id: "evt_smoke" }] });
+check("no calendar result accepted before agreement", early2.structuredContent?.error?.code === "confirmation_required");
+const agreed = await call("plan_reminders", { trip_id: tripId, confirmation_code: plan.structuredContent.confirmation_code });
+check("agreeing returns the writes for the host", agreed.structuredContent.confirmed === true && agreed.structuredContent.writes.length === plan.structuredContent.reminders.length && agreed.structuredContent.writes.every((w) => w.op === "create"));
+const recorded = await call("record_reminder_results", { plan_id: agreed.structuredContent.plan_id, trip_id: tripId, results: [{ key: agreed.structuredContent.writes[0].key, outcome: "created", external_event_id: "evt_smoke" }] });
+check("a reported write is recorded as host-reported", recorded.structuredContent.provenance === "host-reported" && recorded.structuredContent.summary.set === 1);
+const replan = await call("plan_reminders", { trip_id: tripId });
+check("a retry skips what is already written", replan.structuredContent.reminders[0].state === "written" && replan.structuredContent.reminders.slice(1).every((r) => r.state === "planned"));
 check("still no runs", (await call("get_status")).structuredContent.run_count === 0);
 
 // A quote needs a confirmed impact: preview (nothing changes), then confirm with the local code.
@@ -89,6 +110,10 @@ const quote = await call("quote_service", { trip_id: tripId });
 const q = quote.structuredContent;
 check("quote: 9.90 from price.amountMinor", q.price?.amountMinor === 990 && text(quote).includes("USD 9.90"));
 check("quote: confirmation_code (codeKind approval), no approveUrl, output null", !!q.confirmation_code && q.codeKind === "approval" && !("approveUrl" in q) && q.output === null);
+check(
+  "quote guidance: confirm step carries the code and needs agreement",
+  q.guidance?.next_steps[0]?.tool === "create_service_payment" && q.guidance.next_steps[0].needs_confirmation === true && q.guidance.next_steps[0].args.confirmation_code === q.confirmation_code,
+);
 
 const noCode = await call("create_service_payment", { trip_id: tripId, run_id: q.runId });
 check("pay without code: confirmation_required", noCode.structuredContent?.error?.code === "confirmation_required" && !JSON.stringify(noCode).includes("approveUrl"));

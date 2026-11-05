@@ -1,4 +1,6 @@
 import * as splitStatus from './splitStatus';
+import * as planReminders from "./planReminders";
+import * as recordReminderResults from "./recordReminderResults";
 import * as updateCaseStatus from "./updateCaseStatus";
 import * as createSplitPayments from "./createSplitPayments";
 import * as quoteSplit from "./quoteSplit";
@@ -14,6 +16,7 @@ import type { Env } from "../env";
 import type { AuthProps } from "../mcp/auth";
 import { logEvent } from "../log";
 import { fail, type ToolContext, type ToolResult } from "./common";
+import { ensureGuidance } from "./guidance";
 import * as getStatus from "./getStatus";
 import * as importOrders from "./importOrders";
 import * as quoteService from "./quoteService";
@@ -42,7 +45,7 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
     if (!ctx) return fail("unauthenticated", "No signed-in user for this request.");
     const base = { event: "tool_call", tool: tool.name, request_id: ctx.requestId, token_id: ctx.tokenId, user_id: ctx.userId };
     try {
-      const result = await tool.run(ctx, args);
+      const result = ensureGuidance(await tool.run(ctx, args));
       const sc = result.structuredContent;
       logEvent({
         ...base,
@@ -55,7 +58,8 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
     } catch (e) {
       logEvent({ ...base, outcome: "internal_error" });
       console.error(e instanceof Error ? e.message : "unknown error");
-      return fail("internal_error", "Unexpected error. Nothing was charged.");
+      // A crash here says nothing about money: an order may exist, so it never claims no charge.
+      return ensureGuidance(fail("internal_error", "Unexpected error. No verified result yet. Check the existing record before trying again."));
     }
   };
   const config = { description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations };
@@ -67,19 +71,23 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
   }
 }
 
-// No prompts. Tools marked `true` also show the MCP Apps card (one ui:// resource, src/mcp/ui.ts).
-export function registerTools(server: McpServer, env: Env, caseAvailable=false): void {
+// No prompts. Every tool shows the MCP Apps card (one ui:// resource, src/mcp/ui.ts); hosts without it use the text.
+export function registerTools(server: McpServer, env: Env, caseAvailable=false, remindersAvailable=false): void {
   register(server, env, getStatus, true);
   register(server, env, importOrders, true);
   register(server, env, quoteService, true);
   register(server, env, createServicePayment, true);
   register(server, env, verifyPayment, true);
-  register(server, env, reconcileTrip);
+  register(server, env, reconcileTrip, true);
   register(server, env, detectImpact, true);
   register(server, env, planOptions, true);
-  register(server, env, quoteSplit);
-  register(server, env, createSplitPayments);
-  register(server, env, splitStatus);
-  if(caseAvailable) register(server, env, updateCaseStatus);
+  register(server, env, quoteSplit, true);
+  register(server, env, createSplitPayments, true);
+  register(server, env, splitStatus, true);
+  if(caseAvailable) register(server, env, updateCaseStatus, true);
+  if (remindersAvailable) {
+    register(server, env, planReminders, true);
+    register(server, env, recordReminderResults, true);
+  }
 
 }

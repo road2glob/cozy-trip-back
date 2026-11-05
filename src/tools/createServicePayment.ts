@@ -13,11 +13,11 @@ import {
   fail,
   failFromService,
   isStub,
-  ok,
   paymentReality,
   type ToolContext,
   type ToolResult,
 } from "./common";
+import { NO_VERIFIED_CAPTURE, guided, nextStep } from "./guidance";
 
 export const name = "create_service_payment";
 export const description =
@@ -31,25 +31,38 @@ export const inputSchema = z.object({
 export const annotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true };
 
 function paymentResult(ctx: ToolContext, so: ServiceOrderRow, charge: Charge, replay: boolean): ToolResult {
+  // A repeat call can land on an order already captured or closed: then there is nothing left to pay.
+  const unpaid = charge.state === "awaiting-payment";
   const structured = {
     trip_id: so.trip_id,
     runId: so.run_id,
     chargeId: charge.chargeId,
-    approveUrl: charge.approveUrl,
-    paypalOrderId: charge.paypalOrderId,
+    approveUrl: unpaid ? charge.approveUrl : null,
+    paypalOrderId: unpaid ? charge.paypalOrderId : null,
     state: charge.state,
     replay,
     reality: paymentReality(ctx.env),
-    ...(!isStub(ctx.env) && charge.paypalOrderId ? { view: "paypal_checkout", display_amount: formatUsd(charge.amountMinor) } : {}),
+    display_amount: formatUsd(charge.amountMinor),
+    ...(!isStub(ctx.env) && unpaid && charge.paypalOrderId ? { view: "paypal_checkout" } : {}),
   };
   const lines = [
-    replay ? `The service-fee order for run ${so.run_id} already exists. Same link:` : `Service-fee order created for run ${so.run_id}. Approve it here:`,
-    charge.approveUrl ?? "(the service returned no link)",
+    ...(unpaid
+      ? [
+          replay ? `The service-fee order for run ${so.run_id} already exists. Same link:` : `Service-fee order created for run ${so.run_id}. Approve it here:`,
+          charge.approveUrl ?? "(the service returned no link)",
+        ]
+      : [`The service-fee order for run ${so.run_id} already exists and has no payment link.`]),
     `State: ${charge.state}.`,
     isStub(ctx.env) ? STUB_NOTICE : REAL_SANDBOX_NOTICE,
     NOT_PAID_UNTIL_RECEIPT,
   ];
-  return ok(lines.join("\n"), structured);
+  return guided(lines.join("\n"), structured, {
+    fact: unpaid
+      ? `The service-fee order exists and is unpaid. ${NO_VERIFIED_CAPTURE}`
+      : "This order is no longer waiting for payment. Check it for the current result; no new payment is needed.",
+    next_steps: [nextStep.checkFee(so.trip_id, so.run_id ?? "", unpaid ? undefined : "Check again")],
+    end: null,
+  });
 }
 
 const invalidCode = (extra: Record<string, unknown> = {}) =>

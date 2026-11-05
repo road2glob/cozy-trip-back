@@ -1,4 +1,4 @@
-// MCP Apps (ui://) card. One HTML page serves the four phase 1 tools; it picks its view from each
+// MCP Apps (ui://) card. One HTML page serves every tool; it picks its view from each
 // tool's structuredContent. Hosts without MCP Apps ignore all of this and show the tool text.
 import type { McpServer } from "@modelcontextprotocol/server";
 import { registerAppResource, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";

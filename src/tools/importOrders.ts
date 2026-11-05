@@ -1,22 +1,28 @@
 import { z } from "zod";
 import { getTripDetail, importSampleTrip } from "../domain/trips";
+import { reminderTablesExist } from "../domain/reminders";
+import { listServiceOrders } from "../domain/serviceOrders";
 import { formatUsd } from "../domain/money";
-import { SIMULATED_NOTICE, fail, ok, type ToolContext, type ToolResult } from "./common";
+import { SIMULATED_NOTICE, fail, type ToolContext, type ToolResult } from "./common";
+import { guided, nextStep, withGuidance } from "./guidance";
 
 export const name = "import_orders";
 export const description =
-  "Import only when the user asks. mode sample loads the fictional Seattle–San Francisco trip and does not start a payment-service run or a demo cancellation. mode text returns an inferred preview until confirmation_code is supplied. A second sample import returns the same trip_id.";
+  "Import only when the user asks. mode sample loads a fictional sample trip and starts nothing else. This version supports only that sample: mode text explains that real orders cannot be read, and imports nothing. A second sample import returns the same trip_id.";
 export const inputSchema = z.object({
   mode: z.enum(["sample", "text"]).describe("sample loads the fictional sample trip"),
-  text: z.string().optional().describe("Order confirmation text (mode text only)"),
-  confirmation_code: z.string().optional().describe("Local preview code (mode text only)"),
+  text: z.string().optional().describe("Not read in this version"),
+  confirmation_code: z.string().optional().describe("Not used in this version"),
 });
 export const annotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): Promise<ToolResult> {
   if (args.mode === "text") {
-    // Phase 1: no Workers AI call, no parsing.
-    return fail("model_not_enabled", "Text import is not enabled yet. Use mode sample.");
+    return withGuidance(fail("model_not_enabled", "This competition version supports the fictional sample only. It cannot read real orders or an inbox. Nothing was imported."), {
+      fact: "CozyTrip cannot read real orders or an inbox in this version, and nothing was imported.",
+      next_steps: [nextStep.importSample()],
+      end: null,
+    });
   }
 
   const { tripId, created } = await importSampleTrip(ctx.env.DB, ctx.userId);
@@ -40,6 +46,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
       title: b.title,
       local_start: b.local_start,
       amount_minor: b.amount_minor,
+      display_amount: formatUsd(b.amount_minor),
       currency: b.currency,
       status: b.status,
       linked_booking_id: b.linked_booking_id,
@@ -47,21 +54,33 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
     })),
     balances: d.balances,
     total_minor: d.totalMinor,
+    display_total: formatUsd(d.totalMinor),
     currency: "USD",
     demo_event: d.demoEvent?.state ?? null,
     demo_event_id: d.demoEvent?.event_id ?? null,
-    run_count: 0,
+    run_count: (await listServiceOrders(ctx.env.DB, ctx.userId, tripId)).length,
   };
 
-  const owes = d.balances.map((b) => `${b.from} owes ${b.to} ${formatUsd(b.amount_minor)}`).join("; ");
+  // Shares are paid to the Team sandbox merchant, so this never says anyone owes Maya.
+  const shares = d.balances.map((b) => `${b.from}'s share ${formatUsd(b.amount_minor)}`).join(", ");
   const text = [
     created ? `Imported the sample trip ${tripId}.` : `The sample trip was already imported: ${tripId}.`,
     `${d.trip.origin_city} (${d.trip.origin_code}) to ${d.trip.destination_city} (${d.trip.destination_code}), ${d.trip.start_date} to ${d.trip.end_date}.`,
     `Travelers: ${d.participants.map((p) => (p.role === "organizer" ? `${p.name} (organizer)` : p.name)).join(", ")}.`,
     ...d.bookings.map((b) => `- ${b.title}: ${formatUsd(b.amount_minor)}`),
-    `Total ${formatUsd(d.totalMinor)}. ${owes}.`,
-    `Demo flight cancellation is armed, not fired. No payment-service run was started.`,
+    `Total ${formatUsd(d.totalMinor)}. Airport pickup prepaid by Maya: ${shares}.`,
+    created ? "No issue has been simulated and no payment has started." : "This trip may have moved on since it was imported, so its current position comes from get_status.",
     SIMULATED_NOTICE,
   ].join("\n");
-  return ok(text, structured);
+  // A repeat import is someone coming back: the trip may have moved on, so read it instead of restarting.
+  const guidance = created
+    ? {
+        fact: `The sample trip is organized: ${d.bookings.length} bookings, ${d.participants.length} travelers, ${formatUsd(d.totalMinor)}. Simulated travel data.`,
+        next_steps: (await reminderTablesExist(ctx.env.DB))
+          ? [nextStep.seeReminders(tripId, "See reminder plan"), nextStep.previewIssue(tripId), nextStep.quoteSplit(tripId), nextStep.checkOrders(tripId)]
+          : [nextStep.previewIssue(tripId, "Preview a simulated issue"), nextStep.quoteSplit(tripId), nextStep.checkOrders(tripId)],
+        end: null,
+      }
+    : { fact: "This sample trip was already imported. Nothing was changed.", next_steps: [nextStep.resume(tripId)], end: null };
+  return guided(text, structured, guidance);
 }

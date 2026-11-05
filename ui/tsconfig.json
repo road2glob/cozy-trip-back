@@ -9,5 +9,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["./**/*.ts", "../src/domain/money.ts"]
+  "include": ["./**/*.ts"]
 }

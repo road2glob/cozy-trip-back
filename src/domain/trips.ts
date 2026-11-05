@@ -1,6 +1,10 @@
 import sample from "./seattle-sfo.json";
 import { assertCents } from "./money";
 import { newId, nowIso } from "./ids";
+import { addDays, daysBetween, localDateIn, shiftLocal } from "./dates";
+
+/** A new sample always starts this many days after its first import, so it has future dates to remind about */
+export const SAMPLE_LEAD_DAYS = 7;
 
 type Sample = typeof sample;
 
@@ -92,13 +96,15 @@ export async function findSampleTripId(db: D1Database, userId: string): Promise<
 /**
  * Writes Trip, Participants, Bookings, Expenses (+ shares) and the armed demo event in one batch.
  * Returns { tripId, created: false } when this user already has the sample trip.
+ * Dates are worked out once, here, and stored: re-reading, re-importing or paying never moves them.
  */
-export async function importSampleTrip(db: D1Database, userId: string): Promise<{ tripId: string; created: boolean }> {
+export async function importSampleTrip(db: D1Database, userId: string, now = Date.now()): Promise<{ tripId: string; created: boolean }> {
   validateSample();
   const existing = await findSampleTripId(db, userId);
   if (existing) return { tripId: existing, created: false };
 
-  const now = nowIso();
+  const createdAt = nowIso();
+  const shift = daysBetween(sample.startDate, addDays(localDateIn(now, sample.timezone), SAMPLE_LEAD_DAYS));
   const tripId = newId("trip");
   const participantIds = new Map(sample.participants.map((p) => [p.key, newId("ppl")]));
   const bookingIds = new Map(sample.bookings.map((b) => [b.key, newId("bkg")]));
@@ -120,12 +126,12 @@ export async function importSampleTrip(db: D1Database, userId: string): Promise<
         sample.origin.city,
         sample.destination.code,
         sample.destination.city,
-        sample.startDate,
-        sample.endDate,
+        shiftLocal(sample.startDate, shift),
+        shiftLocal(sample.endDate, shift),
         sample.timezone,
         provenance,
         reality,
-        now,
+        createdAt,
       ),
   ];
 
@@ -154,7 +160,7 @@ export async function importSampleTrip(db: D1Database, userId: string): Promise<
           b.kind,
           b.vendor,
           b.title,
-          b.localStart,
+          shiftLocal(b.localStart, shift),
           "nights" in b ? b.nights : null,
           "travelers" in b ? b.travelers : null,
           assertCents(b.amountMinor),
@@ -201,7 +207,7 @@ export async function importSampleTrip(db: D1Database, userId: string): Promise<
   stmts.push(
     db
       .prepare("INSERT INTO demo_events (event_id, trip_id, kind, booking_id, state, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
-      .bind(newId("evt"), tripId, sample.demoEvent.kind, bookingIds.get(sample.demoEvent.bookingKey)!, sample.demoEvent.state, now),
+      .bind(newId("evt"), tripId, sample.demoEvent.kind, bookingIds.get(sample.demoEvent.bookingKey)!, sample.demoEvent.state, createdAt),
   );
 
   try {

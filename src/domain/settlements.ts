@@ -1,6 +1,7 @@
 import type { ToolContext } from "../tools/common";
 import { getTripDetail } from "./trips";
-import { getSettlement, reconcileSettlement } from "../paymentService";
+import { formatUsd } from "./money";
+import { getSettlement, PaymentServiceError, reconcileSettlement } from "../paymentService";
 export interface PaymentRow {
   payment_id: string;
   participant_id: string;
@@ -25,7 +26,27 @@ export async function splitStatus(
   ).all<PaymentRow & { trip_id: string }>();
   const result = [];
   for (const p of rows.results) {
-    let s = await getSettlement(ctx.env, p.payment_id);
+    let s;
+    try {
+      s = await getSettlement(ctx.env, p.payment_id);
+    } catch (e) {
+      // A create that failed partway leaves a row the service has never heard of. It is not an order yet.
+      if (!(e instanceof PaymentServiceError && e.status === 404 && p.state === "creating")) throw e;
+      const d = await getTripDetail(ctx.env.DB, ctx.userId, p.trip_id);
+      result.push({
+        trip_id: p.trip_id,
+        payment_id: p.payment_id,
+        participant_id: p.participant_id,
+        name: d?.participants.find((v) => v.participant_id === p.participant_id)?.name,
+        amount_minor: p.amount_minor,
+        display_amount: formatUsd(p.amount_minor),
+        currency: "USD",
+        state: "creating",
+        prompt: false,
+        disclaimer: "Sandbox demo: funds go to the CozyTrip Team sandbox merchant, not a real person-to-person transfer.",
+      });
+      continue;
+    }
     if (reconcile && s.state === "awaiting-payment")
       s = await reconcileSettlement(ctx.env, p.payment_id);
     await ctx.env.DB.prepare(
@@ -49,11 +70,13 @@ export async function splitStatus(
       participant_id: p.participant_id,
       name: participant?.name,
       amount_minor: p.amount_minor,
+      display_amount: formatUsd(p.amount_minor),
       currency: "USD",
       state: s.state,
       prompt: s.state === "awaiting-payment",
+      // Payment details exist only while the share is unpaid. The card never guesses or creates an order.
       ...(s.state === "awaiting-payment" && s.approveUrl
-        ? { approveUrl: s.approveUrl }
+        ? { approveUrl: s.approveUrl, ...(s.paypalOrderId ? { paypalOrderId: s.paypalOrderId } : {}) }
         : {}),
       disclaimer:
         "Sandbox demo: funds go to the CozyTrip Team sandbox merchant, not a real person-to-person transfer.",

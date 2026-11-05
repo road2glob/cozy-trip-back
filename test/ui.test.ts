@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { cardFor, formatLocal, minutesLeft, quoteStage } from "../ui/views";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cardFor, formatLocal, minutesLeft, quoteStage, type CardAction } from "../ui/views";
 import * as getStatus from "../src/tools/getStatus";
 import * as importOrders from "../src/tools/importOrders";
 import * as detectImpact from "../src/tools/detectImpact";
 import * as planOptions from "../src/tools/planOptions";
+import * as planReminders from "../src/tools/planReminders";
 import * as quoteService from "../src/tools/quoteService";
 import * as createServicePayment from "../src/tools/createServicePayment";
 import * as verifyPayment from "../src/tools/verifyPayment";
@@ -13,11 +14,17 @@ import { buildCardHtml } from "../scripts/build-ui.mjs";
 import { testEnv, toolCtx } from "./helpers/env";
 
 describe("card views from real tool results", () => {
-  it("walks empty -> trip -> impact -> options -> quote -> payment -> delivery -> status with the right card each time", async () => {
+  // A fixed first-import day: the sample starts seven days later.
+  beforeEach(() => vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-11-01T21:00:00Z") }));
+  afterEach(() => vi.useRealTimers());
+
+  it("walks empty -> trip -> impact -> options -> quote -> payment -> delivery -> status, pressing the server's own buttons", async () => {
     const { env } = testEnv();
     const ctx = toolCtx(env);
 
-    expect(cardFor((await getStatus.run(ctx, {})).structuredContent)).toEqual({ kind: "empty" });
+    const empty = cardFor((await getStatus.run(ctx, {})).structuredContent);
+    if (empty.kind !== "empty") throw new Error(`expected empty, got ${empty.kind}`);
+    expect(empty.actions).toEqual([{ label: "Import sample trip", tool: "import_orders", args: { mode: "sample" } }]);
 
     const trip = cardFor((await importOrders.run(ctx, { mode: "sample" })).structuredContent);
     if (trip.kind !== "trip") throw new Error(`expected trip, got ${trip.kind}`);
@@ -31,54 +38,68 @@ describe("card views from real tool results", () => {
     expect(trip.bookings.map((b) => b.amount)).toEqual(["USD 645.00", "USD 540.00", "USD 180.00", "USD 126.00"]);
     expect(trip.bookings[2].detail).toBe("Nov 8 · linked to Sample Air 210 SEA to SFO · prepaid by Maya");
     expect(trip.total).toBe("USD 1,491.00");
-    expect(trip.balances).toEqual([
-      { text: "Leo owes Maya", amount: "USD 60.00" },
-      { text: "Ava owes Maya", amount: "USD 60.00" },
-    ]);
     expect(trip.simulated).toBe(true);
-    expect(trip.demoArmed).toBe(true);
 
-    // Main gates the quote behind a confirmed impact: preview, then confirm with the local code.
+    // The card only knows buttons the server sent, and pressing one is exactly this call.
+    const press = async <A>(mod: { run(c: typeof ctx, a: A): Promise<{ structuredContent: Record<string, unknown> }> }, action: CardAction) =>
+      cardFor((await mod.run(ctx, action.args as A)).structuredContent);
+
+    // After import the first offer is the reminder plan, which is free and changes nothing.
+    expect(trip.actions.map((a) => a.label)).toEqual(["See reminder plan"]);
+    const plan = await press(planReminders, trip.actions[0]);
+    if (plan.kind !== "reminder_plan") throw new Error(`expected reminder_plan, got ${plan.kind}`);
+    expect(plan.rows).toHaveLength(4);
+    expect(plan.actions[0]).toMatchObject({ label: "Add to my calendar" });
+    expect(plan.actions[0].message).toContain("I agree");
+
+    // Issue handling is a separate entry, reached from the conversation.
     const preview = cardFor((await detectImpact.run(ctx, { trip_id: trip.tripId })).structuredContent);
     if (preview.kind !== "impact") throw new Error(`expected impact, got ${preview.kind}`);
     expect(preview.preview).toBe(true);
-    expect(preview.code).not.toBe("");
-    expect(preview.rows.map((r) => `${r.label}:${r.statusLabel}`)).toEqual(["Flight:Disrupted", "Hotel:At risk", "Airport pickup:Disrupted", "Activity:Unaffected"]);
+    expect(preview.rows.map((r) => `${r.label}:${r.statusLabel}`)).toEqual([
+      "Sample Air 210 SEA to SFO:Disrupted",
+      "Sample Bay Hotel, 3 nights:At risk",
+      "Sample Transfer Co airport pickup:Disrupted",
+      "Sample Bay Cruise:Unaffected",
+    ]);
+    expect(preview.rows.map((r) => r.provenance)).toEqual(["Simulated", "Inferred", "Inferred", "From the booking"]);
+    expect(preview.actions.map((a) => a.label)).toEqual(["Confirm simulation"]);
 
-    const confirmed = cardFor((await detectImpact.run(ctx, { trip_id: trip.tripId, confirmation_code: preview.code })).structuredContent);
+    const confirmed = await press(detectImpact, preview.actions[0]);
     if (confirmed.kind !== "impact") throw new Error(`expected impact, got ${confirmed.kind}`);
     expect(confirmed.preview).toBe(false);
-    expect(confirmed.code).toBe("");
-    expect(confirmed.runId).not.toBe("");
+    // The impact card has no way to a payment.
+    expect(confirmed.actions.map((a) => a.tool)).toEqual(["plan_options"]);
 
-    const options = cardFor((await planOptions.run(ctx, { trip_id: trip.tripId })).structuredContent);
+    const options = await press(planOptions, confirmed.actions[0]);
     if (options.kind !== "options") throw new Error(`expected options, got ${options.kind}`);
     expect(options.options.map((o) => o.title)).toEqual(["Rebook with the airline", "Coordinate the hotel and pickup", "CozyTrip prepared drafts"]);
     expect(options.options.map((o) => o.cost)).toEqual([null, null, "USD 9.90"]);
+    expect(options.actions.map((a) => a.label)).toEqual(["Get a quote for the drafts"]);
 
-    const quote = cardFor((await quoteService.run(ctx, { trip_id: trip.tripId })).structuredContent);
+    const quote = await press(quoteService, options.actions[0]);
     if (quote.kind !== "quote") throw new Error(`expected quote, got ${quote.kind}`);
     expect(quote.price).toBe("USD 9.90");
     expect(quote.stub).toBe(true);
-    expect(quote.code).toMatch(/^apt_/);
+    expect(quote.scope).toHaveLength(4);
+    expect(quote.actions.map((a) => a.label)).toEqual(["Confirm USD 9.90"]);
 
-    const payment = cardFor(
-      (await createServicePayment.run(ctx, { trip_id: trip.tripId, run_id: quote.runId, confirmation_code: quote.code })).structuredContent,
-    );
+    const payment = await press(createServicePayment, quote.actions[0]);
     if (payment.kind !== "payment") throw new Error(`expected payment, got ${payment.kind}`);
-    expect(payment.stateLabel).toBe("Awaiting payment");
     expect(payment.stub).toBe(true);
     expect(new URL(payment.approveUrl).hostname).toBe("localhost");
 
     // The stub never captures: the delivery card must say not confirmed and show no materials.
-    const delivery = cardFor((await verifyPayment.run(ctx, { trip_id: trip.tripId, run_id: quote.runId })).structuredContent);
+    const delivery = cardFor((await verifyPayment.run(ctx, { trip_id: trip.tripId, run_id: payment.runId })).structuredContent);
     if (delivery.kind !== "delivery") throw new Error(`expected delivery, got ${delivery.kind}`);
     expect(delivery.paid).toBe(false);
+    expect(delivery.pending).toBe("unconfirmed");
     expect(delivery.materials).toEqual([]);
+    expect(delivery.actions.map((a) => a.label)).toEqual(["Check again", "Back to PayPal"]);
 
     const status = cardFor((await getStatus.run(ctx, { trip_id: trip.tripId })).structuredContent);
     if (status.kind !== "status") throw new Error(`expected status, got ${status.kind}`);
-    expect(status.runs[0].label).toBe("Awaiting payment");
+    expect(status.runs[0].sentence).toBe("Order created. Not paid.");
     expect(status.runs[0].steps.map((s) => `${s.label}:${s.state}`)).toEqual([
       "Approval:done",
       "Payment:current",
@@ -87,6 +108,8 @@ describe("card views from real tool results", () => {
       "Receipt:todo",
     ]);
     expect(status.runs[0].chargeOutcome).toBeNull();
+    expect(status.actions[0]).toMatchObject({ label: "Check again", tool: "verify_payment" });
+    expect(status.reminders).toBeNull();
   });
 
   it("shows tool errors as an error card", async () => {
@@ -96,11 +119,10 @@ describe("card views from real tool results", () => {
   });
 
   it("offers approve, a new quote after expiry, or the existing link once approved", () => {
-    const base = { tripId: "t", runId: "r", title: "x", price: "USD 9.90", code: "apt_1", stub: true };
     const now = Date.parse("2026-11-05T10:00:00.000Z");
-    expect(quoteStage({ ...base, state: "awaiting-approval", expiresAt: "2026-11-05T10:20:00.000Z" }, now)).toEqual({ stage: "approve", minutesLeft: 20 });
-    expect(quoteStage({ ...base, state: "awaiting-approval", expiresAt: "2026-11-05T09:59:00.000Z" }, now)).toEqual({ stage: "expired" });
-    expect(quoteStage({ ...base, state: "awaiting-payment", expiresAt: "2026-11-05T09:00:00.000Z" }, now)).toEqual({ stage: "approved" });
+    expect(quoteStage({ state: "awaiting-approval", expiresAt: "2026-11-05T10:20:00.000Z" }, now)).toEqual({ stage: "approve", minutesLeft: 20 });
+    expect(quoteStage({ state: "awaiting-approval", expiresAt: "2026-11-05T09:59:00.000Z" }, now)).toEqual({ stage: "expired" });
+    expect(quoteStage({ state: "awaiting-payment", expiresAt: "2026-11-05T09:00:00.000Z" }, now)).toEqual({ stage: "approved" });
   });
 
   it("formats local trip times without time-zone math", () => {

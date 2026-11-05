@@ -1,10 +1,13 @@
 import {splitStatus} from '../domain/settlements';
 import { z } from "zod";
 import { getTripDetail, listTripIds, type TripDetail } from "../domain/trips";
+import { formatUsd } from "../domain/money";
 import { listServiceOrders, updateServiceOrder } from "../domain/serviceOrders";
 import { isTerminal } from "../domain/runStates";
+import { readEvents, reminderTablesExist, summarize } from "../domain/reminders";
 import { getReceipt, getRun, PaymentServiceError } from "../paymentService";
-import { SIMULATED_NOTICE, STUB_NOTICE, fail, failFromService, isStub, ok, type ToolContext, type ToolResult } from "./common";
+import { SIMULATED_NOTICE, STUB_NOTICE, fail, failFromService, isStub, type ToolContext, type ToolResult } from "./common";
+import { guided, nextStep, tripGuidance } from "./guidance";
 
 export const name = "get_status";
 export const description =
@@ -26,6 +29,8 @@ function tripSummary(d: TripDetail) {
     reality: d.trip.reality,
     participants: d.participants.map((p) => ({ participant_id: p.participant_id, name: p.name, role: p.role })),
     booking_count: d.bookings.length,
+    // Enough to answer "what should I check?" from what is known, without importing again.
+    bookings: d.bookings.map((b) => ({ title: b.title, kind: b.kind, local_start: b.local_start, status: b.status, display_amount: formatUsd(b.amount_minor) })),
     demo_event: d.demoEvent ? { event_id: d.demoEvent.event_id, kind: d.demoEvent.kind, state: d.demoEvent.state } : null,
   };
 }
@@ -62,16 +67,19 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
   }
 
   const trips = details.map(tripSummary);
-  const payments=await splitStatus(ctx,args.trip_id);
+  const payments=(await splitStatus(ctx,args.trip_id)).map((p)=>({...p,name:p.name??"Member"}));
   const cases=await (args.trip_id?env.DB.prepare('SELECT run_id,state,drafting_method,report_json FROM case_progress WHERE user_id=?1 AND trip_id=?2').bind(userId,args.trip_id):env.DB.prepare('SELECT run_id,state,drafting_method,report_json FROM case_progress WHERE user_id=?1').bind(userId)).all<{run_id:string;state:string;drafting_method:string;report_json:string|null}>();
   const caseViews=cases.results.map(c=>({runId:c.run_id,trackingState:c.state,draftingMethod:c.drafting_method,report:c.report_json?JSON.parse(c.report_json):null,available_actions:['update_case_status']}));
   const structured = { trips, runs, run_count: runs.length, split_payments: payments,...(caseViews.length?{service_orders:caseViews}:{}) };
 
-  if (trips.length === 0) return ok("No trips yet and no runs. Import orders to begin.", {...structured,available_actions:["import_orders"]});
+  if (trips.length === 0) {
+    return guided("", { ...structured, available_actions: ["import_orders"] }, { fact: "CozyTrip is connected. There are no trips yet.", next_steps: [nextStep.importSample()], end: null });
+  }
 
-  const lines = trips.map(
-    (t) => `${t.title} (${t.trip_id}): ${t.start_date} to ${t.end_date}, ${t.booking_count} bookings, state ${t.state}.`,
-  );
+  const lines = trips.flatMap((t) => [
+    `${t.title} (${t.trip_id}): ${t.start_date} to ${t.end_date}, ${t.booking_count} bookings, state ${t.state}.`,
+    ...t.bookings.map((b) => `- ${b.title}: ${b.local_start}, ${b.status}, ${b.display_amount}.`),
+  ]);
   lines.push(SIMULATED_NOTICE);
   if (runs.length === 0) {
     lines.push("No payment-service runs.");
@@ -82,7 +90,20 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
     }
     if (isStub(env)) lines.push(STUB_NOTICE);
   }
-  for(const p of payments)lines.push(`${p.name}: USD 60 ${p.state}${p.prompt?' — payment requested':' — no payment prompt'}`);
+  for(const p of payments)lines.push(`${p.name}: ${p.display_amount} ${p.state}${p.prompt?' — payment requested':' — no payment prompt'}`);
   for(const c of caseViews)lines.push(`Service case ${c.runId}: ${c.trackingState}; user-reported follow-up only.`);
-  return ok(lines.join("\n"), structured);
+
+  // One sample trip per user today; several trips would each need their own guidance.
+  const first = details[0];
+  const tripId = first.trip.trip_id;
+  const reminders = (await reminderTablesExist(env.DB)) ? summarize(await readEvents(env.DB, userId, tripId)) : null;
+  const latest = runs.filter((r) => r.trip_id === tripId).at(-1);
+  const guidance = tripGuidance({
+    detail: first,
+    run: latest ? { runId: String(latest.runId), state: String(latest.state), ...(typeof latest.chargeOutcome === "string" ? { chargeOutcome: latest.chargeOutcome } : {}) } : null,
+    trackingState: caseViews.find((c) => c.runId === latest?.runId)?.trackingState ?? null,
+    shares: payments.filter((p) => p.trip_id === tripId),
+    reminders,
+  });
+  return guided(lines.join("\n"), { ...structured, ...(reminders ? { reminders } : {}) }, guidance);
 }

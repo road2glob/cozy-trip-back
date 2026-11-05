@@ -22,6 +22,13 @@ declare global {
 
 let loading: Promise<PayPalSdk> | undefined;
 
+/**
+ * The SDK's handshake with its own frame uses location.origin, which is "null" in a srcdoc document, so
+ * createInstance can only time out there (ERR_DEV_POST_MESSAGE_ACK_TIMEOUT, whatever the CSP). Some hosts
+ * load cards that way. The person goes straight to the link rather than waiting out the deadline.
+ */
+const sdkCanRunHere = () => window.location.origin !== "null";
+
 /** No script is requested until a real pending checkout card is rendered. */
 export function loadPayPalSdk(): Promise<PayPalSdk> {
   if (window.paypal?.createInstance) return Promise.resolve(window.paypal);
@@ -49,6 +56,18 @@ export function loadPayPalSdk(): Promise<PayPalSdk> {
   loading = pending;
   // A later card can retry loading, but a failed card itself does not loop.
   void pending.catch(() => { if (loading === pending) loading = undefined; });
+  return pending;
+}
+
+type PayPalInstance = Awaited<ReturnType<PayPalSdk["createInstance"]>>;
+let sharedInstance: Promise<PayPalInstance> | undefined;
+
+/** A split card has two buttons on one page. They share one SDK instance; each order gets its own session. */
+function payPalInstance(sdk: PayPalSdk, clientId: string): Promise<PayPalInstance> {
+  if (sharedInstance) return sharedInstance;
+  const pending = sdk.createInstance({ clientId, components: ["paypal-payments"] });
+  sharedInstance = pending;
+  void pending.catch(() => { if (sharedInstance === pending) sharedInstance = undefined; });
   return pending;
 }
 
@@ -95,10 +114,10 @@ export function mountPayPalCheckout(
     paymentError({ code });
   };
   const initialize = async () => {
-    if (!clientId || !orderId) return fallback();
+    if (!clientId || !orderId || !sdkCanRunHere()) return fallback();
     const sdk = await loadSdk();
     if (!active) return;
-    const instance = await sdk.createInstance({ clientId, components: ["paypal-payments"] });
+    const instance = await payPalInstance(sdk, clientId);
     if (!active) return;
     const eligibility = await instance.findEligibleMethods();
     if (!active) return;

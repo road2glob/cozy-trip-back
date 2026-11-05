@@ -1,10 +1,14 @@
 import { z } from "zod";
 import { getTripDetail } from "../domain/trips";
 import { operation, localCode } from "../domain/operations";
+import { formatUsd } from "../domain/money";
 import { createRun, submitOutput, getReceipt } from "../paymentService";
-import { fail, ok, type ToolContext } from "./common";
+import { fail, type ToolContext } from "./common";
+import { guided, nextStep } from "./guidance";
 export const SPLIT_NOTICE =
   "Sandbox demo: funds go to the CozyTrip Team sandbox merchant, not a real person-to-person transfer.";
+export const DEMO_NOTICE = "Sandbox demo, not a real person-to-person transfer.";
+export const PAYEE_NOTICE = "Pays the CozyTrip Team sandbox merchant, not Maya.";
 export const name = "quote_split";
 export const description =
   "Calculate the source USD 180 transfer as three USD 60 shares. Maya already prepaid in the sample and owes zero. Return a local confirmation code without creating payment orders.";
@@ -103,37 +107,58 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
       q = { run_id: created.runId };
     }
     const receipt = await getReceipt(ctx.env, q.run_id);
-    const shares = d.participants.map((p) => ({
-      participant_id: p.participant_id,
-      name: p.name,
-      share_minor: 6000,
-      due_minor: d.balances.some(
+    const shares = d.participants.map((p) => {
+      const due = d.balances.some(
         (b) => b.from_participant_id === p.participant_id,
       )
         ? 6000
-        : 0,
-      source: "source",
-      sample_prepayment: p.role === "organizer",
-    }));
-    return ok(
-      "USD 180 = USD 60 × 3. Maya prepaid in the fictional sample and has no payment link. Leo and Ava each owe USD 60. " +
-        SPLIT_NOTICE,
+        : 0;
+      return {
+        participant_id: p.participant_id,
+        name: p.name,
+        share_minor: 6000,
+        due_minor: due,
+        display_share: formatUsd(6000),
+        display_due: formatUsd(due),
+        source: "source",
+        sample_prepayment: p.role === "organizer",
+      };
+    });
+    const code = await localCode(ctx, "split", args.trip_id, q.run_id);
+    const existing = await ctx.env.DB.prepare(
+      "SELECT count(*) AS n FROM payments WHERE trip_id=?1 AND user_id=?2 AND state<>'creating'",
+    )
+      .bind(args.trip_id, ctx.userId)
+      .first<{ n: number }>();
+    const summary = `${formatUsd(18000)} = ${formatUsd(6000)} × 3. Maya prepaid in the fictional sample, owes ${formatUsd(0)} and has no payment link. Leo and Ava each owe ${formatUsd(6000)}.`;
+    return guided(
+      `${summary} ${SPLIT_NOTICE}`,
       {
         trip_id: args.trip_id,
         runId: q.run_id,
         total_minor: 18000,
+        display_total: formatUsd(18000),
         currency: "USD",
         shares,
         receipt,
-        confirmation_code: await localCode(
-          ctx,
-          "split",
-          args.trip_id,
-          q.run_id,
-        ),
+        confirmation_code: code,
         codeKind: "local",
         disclaimer: SPLIT_NOTICE,
+        demo_notice: DEMO_NOTICE,
+        payee_notice: PAYEE_NOTICE,
       },
+      // Only finished requests count: after a failed create, confirming again is the way to complete them.
+      existing && existing.n >= d.balances.length
+        ? {
+            fact: `${summary} The share requests already exist, so nothing new is created.`,
+            next_steps: [nextStep.checkShares(args.trip_id, "See shares")],
+            end: null,
+          }
+        : {
+            fact: `${summary} No payment request exists until the person confirms.`,
+            next_steps: [nextStep.confirmSplit(args.trip_id, code)],
+            end: null,
+          },
     );
   });
 }

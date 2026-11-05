@@ -9,15 +9,17 @@ import {
   fail,
   failFromService,
   isStub,
-  ok,
   paymentReality,
   type ToolContext,
   type ToolResult,
 } from "./common";
+import { NO_VERIFIED_CAPTURE, guided, nextStep } from "./guidance";
+
+const SERVICE_SCOPE = ["Airline contact points", "Hotel change request", "Transfer and cruise change request", "One progress record"];
 
 export const name = "quote_service";
 export const description =
-  "Quote CozyTrip Team after-sales. The price is read from the payment-service workflow registry (USD 9.90). Returns confirmation_code, which is the server-issued approval token. Does not create a PayPal order. Show the summary and wait for the user before create_service_payment.";
+  "Quote CozyTrip Team after-sales, only when the person asks for it. The price is read from the payment-service workflow registry. Returns confirmation_code, which is the server-issued approval token. Does not create a PayPal order. Show the summary and wait for the user before create_service_payment.";
 // Phase 1: only trip_id is required. issue_id becomes required once detect_impact exists (2026-11-06).
 export const inputSchema = z.object({
   trip_id: z.string().min(1).describe("trip_id returned by import_orders"),
@@ -36,6 +38,27 @@ function quoteResult(
 ): ToolResult {
   const amountMinor = assertCents(workflow.price.amountMinor);
   const price = formatUsd(amountMinor);
+  const runId = so.run_id ?? "";
+  const code = so.confirmation_code ?? "";
+  // Once the fee is confirmed, a repeat quote only leads back to the same order, or to checking it once paid.
+  const guidance =
+    so.run_state === "awaiting-approval"
+      ? {
+          fact: `Quoted at ${price}. Not paid, and no PayPal order exists until the person confirms.`,
+          next_steps: [nextStep.confirmFee(so.trip_id, runId, code, price)],
+          end: null,
+        }
+      : so.run_state === "awaiting-payment"
+        ? {
+            fact: `The fee was confirmed earlier, so this reuses the same order. ${NO_VERIFIED_CAPTURE}`,
+            next_steps: [nextStep.continuePayment(so.trip_id, runId, code, "Continue to PayPal")],
+            end: null,
+          }
+        : {
+            fact: "CozyTrip is still checking this order. No new payment is needed.",
+            next_steps: [nextStep.checkFee(so.trip_id, runId, "Check again")],
+            end: null,
+          };
   const structured = {
     trip_id: so.trip_id,
     issue_id: issueId,
@@ -44,6 +67,8 @@ function quoteResult(
     workflowId: workflow.workflowId,
     title: workflow.title,
     price: { amountMinor, currency: workflow.price.currency, unit: workflow.price.unit, source: "payment-service workflow registry" },
+    display_amount: price,
+    scope: SERVICE_SCOPE,
     confirmation_code: so.confirmation_code,
     codeKind: "approval",
     expires_at: so.expires_at,
@@ -53,12 +78,13 @@ function quoteResult(
   };
   const lines = [
     `Quote: ${workflow.title}, ${price}. The price comes from the payment-service workflow registry.`,
+    `Covers: ${SERVICE_SCOPE.join("; ")}. Drafts only, not sent. It is not a rebooking or hotel fee, and it does not guarantee a refund.`,
     `Run ${so.run_id} is ${so.run_state}.`,
     `confirmation_code: ${so.confirmation_code} (expires ${so.expires_at})`,
     "This step does not create a PayPal order. Show this summary to the user and wait for their go-ahead before calling create_service_payment.",
   ];
   if (isStub(ctx.env)) lines.push(STUB_NOTICE);
-  return ok(lines.join("\n"), structured);
+  return guided(lines.join("\n"), structured, guidance);
 }
 
 export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): Promise<ToolResult> {

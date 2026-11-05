@@ -56,7 +56,7 @@ export function ensureGuidance(result: ToolResult): ToolResult {
   const message = (result.structuredContent.error as { message?: string } | undefined)?.message;
   return withGuidance(result, {
     fact: message ?? "That step did not complete.",
-    next_steps: [{ when: "before retrying or describing the outcome", tool: "get_status", args: {}, needs_confirmation: false }],
+    next_steps: [{ when: "before retrying or describing the outcome", tool: "get_status", args: {}, needs_confirmation: false, card_action: "Check where things stand" }],
     end: null,
   });
 }

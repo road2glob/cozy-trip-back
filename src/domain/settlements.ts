@@ -54,8 +54,9 @@ export async function splitStatus(
       currency: "USD",
       state: s.state,
       prompt: s.state === "awaiting-payment",
+      // Payment details exist only while the share is unpaid. The card never guesses or creates an order.
       ...(s.state === "awaiting-payment" && s.approveUrl
-        ? { approveUrl: s.approveUrl }
+        ? { approveUrl: s.approveUrl, ...(s.paypalOrderId ? { paypalOrderId: s.paypalOrderId } : {}) }
         : {}),
       disclaimer:
         "Sandbox demo: funds go to the CozyTrip Team sandbox merchant, not a real person-to-person transfer.",

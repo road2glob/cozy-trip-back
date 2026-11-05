@@ -3,7 +3,7 @@
 // through the host: tools/call for CozyTrip tools, ui/open-link for the approve URL. The card holds
 // no secrets, sends no amounts and never decides that something is paid.
 import { App, applyDocumentTheme, applyHostFonts, applyHostStyleVariables } from "@modelcontextprotocol/ext-apps";
-import { cardFor, type CardView, type ImpactView, type PaymentView, type QuoteView } from "./views";
+import { cardFor, checkoutTargets, type CardAction, type CardView, type CheckoutTarget } from "./views";
 import { render, type UiState } from "./render";
 import { mountPayPalCheckout } from "./paypal";
 
@@ -12,38 +12,66 @@ type HostContext = ReturnType<App["getHostContext"]>;
 const root = document.getElementById("root") as HTMLElement;
 const app = new App({ name: "CozyTrip card", version: "0.1.0" }, {}, { autoResize: true });
 let view: CardView = { kind: "unknown" };
-const ui: UiState = { busy: false, notice: null, manualLink: null, now: Date.now() };
-let checkout: { key: string; dispose(): void } | undefined;
+const ui: UiState = { busy: false, notice: null, now: Date.now(), checkouts: {} };
+const mounted = new Map<string, () => void>();
+
+const LINK_FAILED = "The link did not open. Copy it below.";
+
+function mountCheckout(target: CheckoutTarget): void {
+  const { key, approveUrl, paypalOrderId, check } = target;
+  // A link is the only way when the server gave no real order ID. No SDK is loaded for it.
+  if (!paypalOrderId) {
+    ui.checkouts[key] = { phase: "fallback" };
+    mounted.set(key, () => {});
+    return;
+  }
+  ui.checkouts[key] = { phase: "loading" };
+  const clientId = document.querySelector<HTMLMetaElement>('meta[name="cozytrip-paypal-client-id"]')?.content ?? "";
+  mounted.set(
+    key,
+    mountPayPalCheckout(clientId, paypalOrderId, {
+      ready: (button) => {
+        ui.checkouts[key] = { phase: "ready", button };
+        paint();
+      },
+      approve: () => {
+        // Approval is not payment. The only thing it does is ask the server about this same order.
+        ui.checkouts[key] = { phase: "unconfirmed" };
+        return runTool(check, "PayPal reported an approval in the card, so CozyTrip checked this order.");
+      },
+      cancel: () => {
+        ui.notice = "PayPal was closed. No verified payment yet.";
+        paint();
+      },
+      failed: () => {
+        ui.notice = "No verified result for this step.";
+        paint();
+      },
+      fallback: () => {
+        ui.checkouts[key] = { phase: "fallback", ...(app.getHostCapabilities()?.openLinks ? {} : { manualLink: approveUrl }) };
+        ui.notice = "PayPal button unavailable. Open PayPal instead.";
+        paint();
+      },
+    }),
+  );
+}
+
+/** Keeps one live control per order on the current card, and drops the rest with their old callbacks */
+function syncCheckouts(): void {
+  const targets = checkoutTargets(view);
+  for (const [key, dispose] of mounted) {
+    if (!targets.some((t) => t.key === key)) {
+      dispose();
+      mounted.delete(key);
+      delete ui.checkouts[key];
+    }
+  }
+  for (const target of targets) if (!mounted.has(target.key)) mountCheckout(target);
+}
 
 function paint(): void {
   ui.now = Date.now();
-  const key = view.kind === "paypal_checkout" ? `${view.tripId}:${view.runId}:${view.paypalOrderId}` : "";
-  if (checkout && checkout.key !== key) {
-    checkout.dispose();
-    checkout = undefined;
-    ui.paypal = undefined;
-  }
-  if (view.kind === "paypal_checkout" && !checkout) {
-    const payment = view;
-    ui.paypal = { phase: "loading" };
-    checkout = { key, dispose: () => {} };
-    const clientId = document.querySelector<HTMLMetaElement>('meta[name="cozytrip-paypal-client-id"]')?.content ?? "";
-    checkout.dispose = mountPayPalCheckout(clientId, payment.paypalOrderId, {
-      ready: (button) => { ui.paypal = { phase: "ready", button }; paint(); },
-      approve: () => {
-        ui.paypal = { phase: "verifying" };
-        return runTool("verify_payment", { trip_id: payment.tripId, run_id: payment.runId });
-      },
-      cancel: () => { ui.notice = "Nothing was charged."; paint(); },
-      failed: () => { ui.notice = "No verified result for this step."; paint(); },
-      fallback: () => {
-        ui.paypal = { phase: "fallback" };
-        ui.notice = "PayPal button unavailable. Open PayPal instead.";
-        if (!app.getHostCapabilities()?.openLinks) ui.manualLink = payment.approveUrl;
-        paint();
-      },
-    });
-  }
+  syncCheckouts();
   render(root, view, actions, ui);
 }
 
@@ -54,17 +82,18 @@ function applyTheme(ctx: HostContext): void {
   if (ctx.styles?.css?.fonts) applyHostFonts(ctx.styles.css.fonts);
 }
 
-async function runTool(name: string, args: Record<string, unknown>): Promise<void> {
+async function runTool(action: CardAction, happened: string): Promise<void> {
   ui.busy = true;
   ui.notice = null;
   paint();
   try {
-    const result = await app.callServerTool({ name, arguments: args });
+    const result = await app.callServerTool({ name: action.tool, arguments: action.args });
     view = cardFor(result.structuredContent);
-    ui.manualLink = null;
+    // A share still unpaid after a check keeps its row, so its sentence moves on from "come back".
+    for (const c of Object.values(ui.checkouts)) if (c.phase === "opened") c.phase = "unconfirmed";
     try {
       // Tell the model what the person just did in the card, so the chat stays in step.
-      await app.updateModelContext({ content: result.content });
+      await app.updateModelContext({ content: [{ type: "text", text: happened }, ...(result.content ?? [])] });
     } catch {
       // optional for hosts
     }
@@ -77,36 +106,30 @@ async function runTool(name: string, args: Record<string, unknown>): Promise<voi
 }
 
 const actions = {
-  importSample: () => void runTool("import_orders", { mode: "sample" }),
-  previewImpact: (tripId: string) => void runTool("detect_impact", { trip_id: tripId }),
-  // The person pressed Confirm: that click is the consent for the free, simulated assessment.
-  confirmImpact: (v: ImpactView) => void runTool("detect_impact", { trip_id: v.tripId, confirmation_code: v.code }),
-  options: (tripId: string) => void runTool("plan_options", { trip_id: tripId }),
-  quote: (tripId: string) => void runTool("quote_service", { trip_id: tripId }),
-  verify: (tripId: string, runId: string) => void runTool("verify_payment", { trip_id: tripId, run_id: runId }),
-  // The person pressed Approve: that click is the consent. The server still checks the code.
-  approve: (q: QuoteView) => void runTool("create_service_payment", { trip_id: q.tripId, run_id: q.runId, confirmation_code: q.code }),
-  refresh: (tripId: string) => void runTool("get_status", { trip_id: tripId }),
-  openCheckout: async (p: PaymentView) => {
-    if (view.kind === "paypal_checkout" && !app.getHostCapabilities()?.openLinks) {
-      ui.manualLink = p.approveUrl;
-      ui.notice = "The link did not open. Copy it below.";
+  // Pressing the button is the consent for that step. The server still checks every input.
+  run: (action: CardAction) => void runTool(action, `The person pressed "${action.label}" on the CozyTrip card. Do not ask them to confirm this step again.`),
+  openCheckout: async (key: string, url: string) => {
+    const manual = () => {
+      ui.checkouts[key] = { ...ui.checkouts[key], manualLink: url };
+      ui.notice = LINK_FAILED;
+    };
+    if (!app.getHostCapabilities()?.openLinks) {
+      manual();
       paint();
       return;
     }
     ui.busy = true;
     paint();
     try {
-      const res = await app.openLink({ url: p.approveUrl });
-      if (res.isError) {
-        ui.manualLink = p.approveUrl;
-        ui.notice = "The link did not open. Copy it below.";
-      } else {
-        ui.notice = "Opened in your browser. After approving, come back and say 'check my payment'.";
+      const res = await app.openLink({ url });
+      if (res.isError) manual();
+      else {
+        // The tab being open says nothing about payment, so the card now only offers to check.
+        ui.checkouts[key] = { phase: "opened", linkOpened: true };
+        ui.notice = null;
       }
     } catch {
-      ui.manualLink = p.approveUrl;
-      ui.notice = "The link did not open. Copy it below.";
+      manual();
     } finally {
       ui.busy = false;
       paint();
@@ -116,7 +139,6 @@ const actions = {
 
 app.ontoolresult = (result) => {
   view = cardFor(result.structuredContent);
-  ui.manualLink = null;
   ui.notice = null;
   paint();
 };

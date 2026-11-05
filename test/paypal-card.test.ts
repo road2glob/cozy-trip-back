@@ -88,15 +88,16 @@ describe("PayPal service card through the existing App host bridge", () => {
     await callbacks.onApprove({});
     expect(host.call).toHaveBeenCalledTimes(1);
     expect(host.call).toHaveBeenCalledWith({ name: "verify_payment", arguments: { trip_id: "trip_test", run_id: "run_test" } });
-    expect(document.body.textContent).toContain("Payment not confirmed yet");
-    expect(document.body.textContent).not.toContain("Your prepared drafts");
+    expect(document.body.textContent).toContain("No verified capture yet.");
+    expect(document.body.textContent).not.toContain("Your three drafts");
     expect(document.querySelector("paypal-button")).toBeNull();
   });
 
-  it("cancel reports the prescribed sentence without verifying or creating an order", async () => {
+  it("closing PayPal never claims nothing was charged, and starts no verification or new order", async () => {
     await boot();
     callbacks.onCancel();
-    expect(document.body.textContent).toContain("Nothing was charged.");
+    expect(document.body.textContent).toContain("PayPal was closed. No verified payment yet.");
+    expect(document.body.textContent).not.toMatch(/nothing was charged/i);
     expect(document.querySelector("paypal-button")).not.toBeNull();
     expect(host.call).not.toHaveBeenCalled();
   });
@@ -122,7 +123,7 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(document.body.textContent).not.toContain("Payment verified");
   });
 
-  it("a blocked popup switches to the original host open-link button", async () => {
+  it("a blocked popup switches to the host open-link button, and opening it makes checking the main action", async () => {
     start.mockRejectedValue({ code: "ERR_DEV_UNABLE_TO_OPEN_POPUP" });
     await boot();
     document.querySelector<HTMLElement>("paypal-button")!.click();
@@ -133,6 +134,28 @@ describe("PayPal service card through the existing App host bridge", () => {
     await flush();
     expect(host.open).toHaveBeenCalledWith({ url: order.approveUrl });
     expect(host.call).not.toHaveBeenCalled();
+    // The tab being open proves nothing: no paid claim, and the check comes first.
+    expect(document.body.textContent).toContain("Complete the payment in PayPal, then come back.");
+    expect(document.body.textContent).not.toMatch(/verified payment|paid\b(?! yet)/i);
+    expect(buttons().map(x => x.textContent)).toEqual(["Check again", "Open PayPal again"]);
+    buttons()[0].click();
+    await flush();
+    expect(host.call).toHaveBeenCalledTimes(1);
+    expect(host.call).toHaveBeenCalledWith({ name: "verify_payment", arguments: { trip_id: "trip_test", run_id: "run_test" } });
+    expect(document.body.textContent).toContain("No verified capture yet.");
+    expect(buttons().map(x => x.textContent)).toEqual(["Check again"]);
+  });
+
+  it("the open-link button can be used again, for the same order", async () => {
+    createInstance.mockRejectedValue(new Error("SDK blocked"));
+    await boot();
+    buttons()[0].click();
+    await flush();
+    buttons()[1].click();
+    await flush();
+    expect(host.open).toHaveBeenCalledTimes(2);
+    expect(host.open.mock.calls.every(([request]) => request.url === order.approveUrl)).toBe(true);
+    expect(host.call).not.toHaveBeenCalled();
   });
 
   it("also catches a synchronous popup failure", async () => {
@@ -142,7 +165,7 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(buttons().map(x => x.textContent)).toEqual(["Open PayPal"]);
   });
 
-  it.each(["denied", "throws"])("render failure falls back, and %s open-link becomes text only", async (mode) => {
+  it.each(["denied", "throws"])("render failure falls back, and %s open-link becomes copyable text with a check", async (mode) => {
     createInstance.mockRejectedValue(new Error("render-failed"));
     if (mode === "denied") host.open.mockResolvedValue({ isError: true });
     else host.open.mockRejectedValue(new Error("host rejected link"));
@@ -151,16 +174,16 @@ describe("PayPal service card through the existing App host bridge", () => {
     buttons()[0].click();
     await flush();
     expect(document.body.textContent).toContain(order.approveUrl);
-    expect(buttons()).toHaveLength(0);
+    expect(buttons().map(x => x.textContent)).toEqual(["Check again"]);
     expect(document.querySelector("iframe")).toBeNull();
   });
 
-  it("an unsupported openLinks capability falls straight back to copyable text", async () => {
+  it("an unsupported openLinks capability falls straight back to copyable text with a check", async () => {
     host.links = false;
     createInstance.mockRejectedValue(new Error("SDK blocked"));
     await boot();
     expect(document.body.textContent).toContain(order.approveUrl);
-    expect(buttons()).toHaveLength(0);
+    expect(buttons().map(x => x.textContent)).toEqual(["Check again"]);
     expect(host.open).not.toHaveBeenCalled();
   });
 
@@ -203,5 +226,125 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(createInstance).not.toHaveBeenCalled();
     expect(document.querySelector("paypal-button")).toBeNull();
     expect(document.body.textContent).toContain("Open PayPal Sandbox");
+  });
+});
+
+describe("member shares on one card", () => {
+  const share = (name: string, id: string, extra: Record<string, unknown> = {}) => ({
+    trip_id: "trip_test", payment_id: id, participant_id: "ppl_" + id, name, amount_minor: 6000, display_amount: "USD 60.00", currency: "USD",
+    state: "awaiting-payment", prompt: true,
+    approveUrl: `https://www.sandbox.paypal.com/checkoutnow?token=${id}`, paypalOrderId: `ORDER-${id}`,
+    ...extra,
+  });
+  const paid = (name: string, id: string) => {
+    const { approveUrl: _url, paypalOrderId: _id, ...row } = share(name, id, { state: "captured", prompt: false });
+    return row;
+  };
+  const splitResult = (payments: unknown[], extra: Record<string, unknown> = {}) => ({
+    trip_id: "trip_test", reality: "paypal_sandbox", payments,
+    organizer: { name: "Maya", due_minor: 0, display_due: "USD 0.00", prompt: false },
+    disclaimer: "Sandbox demo: funds go to the CozyTrip Team sandbox merchant, not a real person-to-person transfer.",
+    payee_notice: "Pays the CozyTrip Team sandbox merchant, not Maya.",
+    ...extra,
+  });
+  const unpaid = () => splitResult([share("Leo", "pay_leo"), share("Ava", "pay_ava")]);
+  const sessions: Array<{ callbacks: PayPalCallbacks; start: ReturnType<typeof vi.fn> }> = [];
+
+  beforeEach(() => {
+    sessions.length = 0;
+    createInstance = vi.fn().mockResolvedValue({
+      findEligibleMethods: async () => ({ isEligible: () => true }),
+      createPayPalOneTimePaymentSession: (c: PayPalCallbacks) => {
+        const session = { callbacks: c, start: vi.fn().mockResolvedValue(undefined) };
+        sessions.push(session);
+        return session;
+      },
+    });
+    window.paypal = { createInstance } as PayPalSdk;
+    host.call.mockResolvedValue({ content: [{ type: "text", text: "shares" }], structuredContent: unpaid() });
+  });
+
+  it("gives Leo and Ava their own control for their own server order, and Maya none", async () => {
+    await boot(unpaid());
+    expect(createInstance).toHaveBeenCalledTimes(1);
+    const controls = [...document.querySelectorAll<HTMLElement>("paypal-button")];
+    expect(controls).toHaveLength(2);
+    controls[1].click();
+    expect(await sessions[1].start.mock.calls[0][1]).toEqual({ orderId: "ORDER-pay_ava" });
+    expect(sessions[0].start).not.toHaveBeenCalled();
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Leo's share");
+    expect(text).toContain("Ava's share");
+    expect(text).toContain("Maya owes USD 0.00 and has no payment.");
+    expect(text).toContain("Pays the CozyTrip Team sandbox merchant, not Maya.");
+    expect(text).toContain("not a real person-to-person transfer");
+    expect(text).not.toContain("Maya's share");
+    expect(host.call).not.toHaveBeenCalled();
+  });
+
+  it("an approval checks split_status, never verify_payment, and keeps the other member's button", async () => {
+    await boot(unpaid());
+    host.call.mockResolvedValue({ content: [{ type: "text", text: "one paid" }], structuredContent: splitResult([paid("Leo", "pay_leo"), share("Ava", "pay_ava")]) });
+    await sessions[0].callbacks.onApprove({ orderId: "IGNORED" });
+    await flush();
+    expect(host.call).toHaveBeenCalledTimes(1);
+    expect(host.call).toHaveBeenCalledWith({ name: "split_status", arguments: { trip_id: "trip_test" } });
+    expect(document.querySelectorAll("paypal-button")).toHaveLength(1);
+    expect(document.body.textContent).toContain("Paid");
+    expect(document.body.textContent).toContain("Not paid");
+    expect(document.body.textContent).not.toContain("All shares paid");
+  });
+
+  it("an approval the server has not confirmed stays unpaid and offers only a check for that member", async () => {
+    await boot(unpaid());
+    await sessions[0].callbacks.onApprove({});
+    await flush();
+    expect(document.body.textContent).toContain("No verified capture yet.");
+    expect(document.querySelectorAll("paypal-button")).toHaveLength(1);
+    expect(buttons().map(x => x.textContent)).toEqual(["Check again"]);
+    expect(document.body.textContent).not.toContain("All shares paid");
+  });
+
+  it("when both are paid there is no payment control or check, and old callbacks do nothing", async () => {
+    await boot(unpaid());
+    const old = sessions[1].callbacks;
+    result(splitResult([paid("Leo", "pay_leo"), paid("Ava", "pay_ava")], { guidance: { fact: "done", next_steps: [], end: "No share is waiting" } }));
+    await flush();
+    expect(document.querySelector("paypal-button")).toBeNull();
+    expect(buttons()).toHaveLength(0);
+    expect(document.body.textContent).toContain("All shares paid");
+    await old.onApprove({});
+    expect(host.call).not.toHaveBeenCalled();
+  });
+
+  it("a blocked popup falls back for that member only, and returning means checking the shares", async () => {
+    await boot(unpaid());
+    sessions[0].start.mockRejectedValue({ code: "ERR_DEV_UNABLE_TO_OPEN_POPUP" });
+    [...document.querySelectorAll<HTMLElement>("paypal-button")][0].click();
+    await flush();
+    expect(document.querySelectorAll("paypal-button")).toHaveLength(1);
+    expect(buttons().map(x => x.getAttribute("aria-label"))).toEqual(["Open PayPal for Leo's share"]);
+    buttons()[0].click();
+    await flush();
+    expect(host.open).toHaveBeenCalledWith({ url: "https://www.sandbox.paypal.com/checkoutnow?token=pay_leo" });
+    expect(document.body.textContent).toContain("Complete the payment in PayPal, then come back.");
+    expect(buttons().map(x => x.textContent)).toEqual(["Open PayPal again", "Check again"]);
+    buttons()[1].click();
+    await flush();
+    expect(host.call).toHaveBeenCalledWith({ name: "split_status", arguments: { trip_id: "trip_test" } });
+    expect(document.body.textContent).toContain("No verified capture yet.");
+    expect(document.querySelectorAll("paypal-button")).toHaveLength(1);
+  });
+
+  it("local stub shares never load the SDK and use the link", async () => {
+    await boot(splitResult([share("Leo", "pay_leo", { paypalOrderId: "STUB-pay_leo" })], { reality: "local_stub" }));
+    expect(createInstance).not.toHaveBeenCalled();
+    expect(buttons().map(x => x.textContent)).toEqual(["Open stub checkout"]);
+  });
+
+  it("a share with no server order ID uses the link instead of guessing", async () => {
+    await boot(splitResult([share("Leo", "pay_leo", { paypalOrderId: undefined })]));
+    expect(createInstance).not.toHaveBeenCalled();
+    expect(buttons().map(x => x.textContent)).toEqual(["Open PayPal"]);
   });
 });

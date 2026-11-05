@@ -53,9 +53,9 @@ check("the eleven tools for a new user", JSON.stringify(names) === JSON.stringif
 
 // MCP Apps card: the tools it has views for point at the one ui:// resource (self-contained HTML)
 const CARD_URI = "ui://cozytrip/card.html";
-const CARD_TOOLS = ["create_service_payment", "detect_impact", "get_status", "import_orders", "plan_options", "quote_service", "verify_payment"];
+const CARD_TOOLS = EXPECTED_TOOLS;
 const linked = tools.filter((t) => t._meta?.ui?.resourceUri === CARD_URI).map((t) => t.name).sort();
-check("card linked on exactly the tools it has views for", JSON.stringify(linked) === JSON.stringify(CARD_TOOLS), linked.join(", "));
+check("card linked on every tool", JSON.stringify(linked) === JSON.stringify(CARD_TOOLS), linked.join(", "));
 const card = (await rpc("resources/read", { uri: CARD_URI })).result?.contents?.[0];
 check(
   "card resource: MCP Apps MIME type, inline only",

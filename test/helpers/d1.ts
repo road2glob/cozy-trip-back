@@ -2,12 +2,12 @@
 // D1's ?1, ?2 placeholders are rewritten to named parameters because node:sqlite treats ?NNN as named.
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 type Row = Record<string, unknown>;
 
-const migrationsDir = fileURLToPath(new URL("../../migrations/", import.meta.url));
+// From the repo root rather than import.meta.url, which is not a file URL under the happy-dom environment.
+const migrationsDir = join(process.cwd(), "migrations");
 
 function rewrite(sql: string): string {
   return sql.replace(/\?(\d+)/g, (_m, n) => `$p${n}`);

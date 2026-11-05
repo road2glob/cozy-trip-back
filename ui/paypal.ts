@@ -52,6 +52,18 @@ export function loadPayPalSdk(): Promise<PayPalSdk> {
   return pending;
 }
 
+type PayPalInstance = Awaited<ReturnType<PayPalSdk["createInstance"]>>;
+let sharedInstance: Promise<PayPalInstance> | undefined;
+
+/** A split card has two buttons on one page. They share one SDK instance; each order gets its own session. */
+function payPalInstance(sdk: PayPalSdk, clientId: string): Promise<PayPalInstance> {
+  if (sharedInstance) return sharedInstance;
+  const pending = sdk.createInstance({ clientId, components: ["paypal-payments"] });
+  sharedInstance = pending;
+  void pending.catch(() => { if (sharedInstance === pending) sharedInstance = undefined; });
+  return pending;
+}
+
 export interface CheckoutEvents {
   ready(button: HTMLElement): void;
   approve(): Promise<void>;
@@ -98,7 +110,7 @@ export function mountPayPalCheckout(
     if (!clientId || !orderId) return fallback();
     const sdk = await loadSdk();
     if (!active) return;
-    const instance = await sdk.createInstance({ clientId, components: ["paypal-payments"] });
+    const instance = await payPalInstance(sdk, clientId);
     if (!active) return;
     const eligibility = await instance.findEligibleMethods();
     if (!active) return;

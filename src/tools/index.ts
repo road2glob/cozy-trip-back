@@ -69,19 +69,19 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
   }
 }
 
-// No prompts. Tools marked `true` also show the MCP Apps card (one ui:// resource, src/mcp/ui.ts).
+// No prompts. Every tool shows the MCP Apps card (one ui:// resource, src/mcp/ui.ts); hosts without it use the text.
 export function registerTools(server: McpServer, env: Env, caseAvailable=false): void {
   register(server, env, getStatus, true);
   register(server, env, importOrders, true);
   register(server, env, quoteService, true);
   register(server, env, createServicePayment, true);
   register(server, env, verifyPayment, true);
-  register(server, env, reconcileTrip);
+  register(server, env, reconcileTrip, true);
   register(server, env, detectImpact, true);
   register(server, env, planOptions, true);
-  register(server, env, quoteSplit);
-  register(server, env, createSplitPayments);
-  register(server, env, splitStatus);
-  if(caseAvailable) register(server, env, updateCaseStatus);
+  register(server, env, quoteSplit, true);
+  register(server, env, createSplitPayments, true);
+  register(server, env, splitStatus, true);
+  if(caseAvailable) register(server, env, updateCaseStatus, true);
 
 }

@@ -1,5 +1,5 @@
 // DOM rendering for the card. Text always goes in through text nodes (never innerHTML).
-import { quoteStage, type CardView, type ImpactView, type PaymentView, type QuoteView, type RunView, type StepView } from "./views";
+import { checkFee, checkShares, checkoutKey, quoteStage, shareKey, type CardAction, type CardView, type RunView, type StepView } from "./views";
 
 type Child = Node | string | null | undefined | false;
 type Attr = string | boolean | ((e: Event) => void) | undefined;
@@ -39,7 +39,6 @@ const ICONS: Record<string, string[]> = {
     "M12 2v3",
   ],
   check: ["M20 6 9 17l-5-5"],
-  clock: ["M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20", "M12 6v6l4 2"],
   info: ["M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20", "M12 16v-4", "M12 8h.01"],
   external: ["M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"],
   alert: ["m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3", "M12 9v4", "M12 17h.01"],
@@ -59,33 +58,46 @@ function icon(name: string, cls = "icon"): SVGElement {
 }
 
 export interface Actions {
-  importSample(): void;
-  previewImpact(tripId: string): void;
-  confirmImpact(v: ImpactView): void;
-  options(tripId: string): void;
-  quote(tripId: string): void;
-  approve(q: QuoteView): void;
-  openCheckout(p: PaymentView): void;
-  verify(tripId: string, runId: string): void;
-  refresh(tripId: string): void;
+  /** Calls a tool through the host. The server checks every input as it does for the model. */
+  run(action: CardAction): void;
+  openCheckout(key: string, url: string): void;
+}
+
+/** One payment control: the in-card button until it fails, then a link, then a check of the same order */
+export interface CheckoutUi {
+  phase: "loading" | "ready" | "fallback" | "opened" | "unconfirmed";
+  button?: HTMLElement;
+  /** Set when even the host's link did not work: copyable text is all that is left */
+  manualLink?: string;
+  /** The link was opened at least once, so it can be offered again */
+  linkOpened?: boolean;
 }
 
 export interface UiState {
   busy: boolean;
   notice: string | null;
-  manualLink: string | null;
   now: number;
-  paypal?: { phase: "loading" | "ready" | "fallback" | "verifying"; button?: HTMLElement };
+  checkouts: Record<string, CheckoutUi>;
 }
 
 const brand = () => h("div", { class: "brand" }, h("span", { class: "logo" }, icon("pin", "icon icon-sm")), h("span", {}, "CozyTrip"));
 const chip = (text: string, tone = "neutral", iconName?: string) => h("span", { class: `chip chip-${tone}` }, iconName ? icon(iconName, "icon icon-xs") : null, text);
-const button = (label: string, onClick: () => void, ui: UiState, kind: "primary" | "secondary" = "primary", iconName?: string) =>
-  h("button", { type: "button", class: `btn btn-${kind}`, disabled: ui.busy, onclick: () => onClick() }, label, iconName ? icon(iconName, "icon icon-sm") : null);
+const simulatedTag = () => h("span", { class: "chip chip-sim" }, "Simulated travel data");
+const button = (label: string, onClick: () => void, ui: UiState, kind: "primary" | "secondary" = "primary", iconName?: string, ariaLabel?: string) =>
+  h("button", { type: "button", class: `btn btn-${kind}`, disabled: ui.busy, "aria-label": ariaLabel, onclick: () => onClick() }, label, iconName ? icon(iconName, "icon icon-sm") : null);
 const note = (text: string) => h("p", { class: "note" }, icon("info", "icon icon-sm muted"), h("span", {}, text));
 const stubBanner = () => h("div", { class: "banner" }, h("span", { class: "mono label" }, "LOCAL STUB"), h("span", {}, "Local contract stub. No PayPal order was created."));
-const sandboxBanner = () => h("div", { class: "banner banner-solid" }, h("span", { class: "mono label" }, "PAYPAL SANDBOX"), h("span", {}, "Real PayPal Sandbox transaction."));
 const notice = (ui: UiState) => (ui.notice ? h("p", { class: "notice", role: "status" }, ui.notice) : null);
+
+/** The first allowed step is the main action. A second, if any, stays quiet. */
+function actionRow(list: CardAction[], actions: Actions, ui: UiState, style: "primary" | "secondary" = "primary"): HTMLElement | null {
+  if (list.length === 0) return null;
+  return h(
+    "div",
+    { class: "actions" },
+    list.slice(0, 2).map((a, i) => button(a.label, () => actions.run(a), ui, i === 0 ? style : "secondary")),
+  );
+}
 
 function stepRow(s: StepView, last: boolean): HTMLElement {
   return h(
@@ -96,16 +108,60 @@ function stepRow(s: StepView, last: boolean): HTMLElement {
   );
 }
 
-function runBlock(r: RunView): HTMLElement {
+/** Internal IDs and steps stay out of the way until someone asks for them */
+function runDetails(runs: RunView[]): HTMLElement | null {
+  if (runs.length === 0) return null;
   return h(
-    "section",
-    { class: "run" },
-    h("div", { class: "row between" }, h("h3", {}, "After-sales service fee"), chip(r.label, r.tone, r.tone === "warning" ? "clock" : undefined)),
-    h("span", { class: "mono muted small" }, r.runId),
-    h("ol", { class: "steps" }, r.steps.map((s, i) => stepRow(s, i === r.steps.length - 1))),
-    r.chargeOutcome ? h("p", { class: "small" }, `Receipt: chargeOutcome ${r.chargeOutcome}`) : null,
+    "details",
+    { class: "details" },
+    h("summary", {}, "Details"),
+    runs.map((r) =>
+      h(
+        "div",
+        { class: "run" },
+        h("span", { class: "mono muted small" }, r.runId),
+        h("ol", { class: "steps" }, r.steps.map((s, i) => stepRow(s, i === r.steps.length - 1))),
+        r.chargeOutcome ? h("p", { class: "small muted" }, `Receipt: ${r.chargeOutcome}`) : null,
+      ),
+    ),
   );
 }
+
+const manualLink = (url: string) => h("p", { class: "small" }, "Copy this link into your browser: ", h("span", { class: "mono select" }, url));
+
+/** The sentence or control for one order, by how far its payment has got */
+function checkoutStatus(c: CheckoutUi | undefined): Child {
+  if (c?.manualLink) return manualLink(c.manualLink);
+  switch (c?.phase) {
+    case "ready":
+      return h("div", { class: "paypal-button-slot" }, c.button);
+    case "opened":
+      return h("p", { role: "status" }, "Complete the payment in PayPal, then come back.");
+    case "unconfirmed":
+      return h("p", { role: "status" }, "No verified capture yet.");
+    case "fallback":
+      return null;
+    default:
+      return h("p", { role: "status", class: "muted" }, "Loading PayPal…");
+  }
+}
+
+/** After a link opens or fails, or PayPal approves, only a check of this same order can tell the result. */
+const needsCheck = (c: CheckoutUi | undefined) => c?.phase === "opened" || c?.phase === "unconfirmed" || !!c?.manualLink;
+
+function openButton(key: string, url: string, c: CheckoutUi | undefined, label: string, actions: Actions, ui: UiState, ariaLabel?: string): Child {
+  if (c?.manualLink) return null;
+  if (c?.phase === "fallback") return button(label, () => actions.openCheckout(key, url), ui, "primary", "external", ariaLabel);
+  if (c?.linkOpened) return button("Open PayPal again", () => actions.openCheckout(key, url), ui, "secondary", "external", ariaLabel && `${ariaLabel} again`);
+  return null;
+}
+
+const PENDING: Record<string, { title: string; body: string }> = {
+  unconfirmed: { title: "No verified capture yet.", body: "No drafts until PayPal Sandbox shows the capture and it passes verification." },
+  checking: { title: "Checking this order", body: "No new payment is needed. Drafts appear once the check passes." },
+  not_confirmed: { title: "Not confirmed yet", body: "No order exists and nothing is paid." },
+  closed: { title: "This order is closed", body: "No drafts were delivered from it." },
+};
 
 export function render(root: HTMLElement, view: CardView, actions: Actions, ui: UiState): void {
   root.setAttribute("aria-busy", ui.busy ? "true" : "false");
@@ -114,16 +170,16 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
     case "empty":
       body = [
         h("h2", {}, "No trips yet"),
-        h("p", { class: "muted" }, "Your ledger is empty. Nothing has been imported and there are no payment-service runs."),
-        h("div", { class: "actions" }, button("Import the sample trip", actions.importSample, ui), h("span", { class: "muted small" }, "Uses fictional travel data.")),
+        h("p", { class: "muted" }, "CozyTrip is connected."),
+        actionRow(view.actions, actions, ui),
+        h("p", { class: "muted small" }, "Uses fictional travel data."),
       ];
       break;
     case "trip":
       body = [
-        h("div", { class: "chips" }, view.simulated ? chip("Simulated travel data") : null, chip("Draft", "accent")),
+        view.simulated ? simulatedTag() : null,
         h("h2", {}, view.title),
-        h("p", { class: "muted" }, `${view.dates} · ${view.travelers.length} travelers`),
-        h("p", {}, view.travelers.map((t, i) => `${i ? ", " : ""}${t.name}${t.organizer ? " (organizer)" : ""}`).join("")),
+        h("p", { class: "muted" }, `${view.dates} · ${view.travelers.length} travelers: ${view.travelers.map((t) => t.name).join(", ")}`),
         h(
           "ul",
           { class: "list" },
@@ -138,17 +194,21 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
           ),
         ),
         h("div", { class: "row between total" }, h("span", { class: "muted" }, "Trip total"), h("span", { class: "amount big" }, view.total)),
-        view.balances.length
-          ? h("div", { class: "panel" }, view.balances.map((b) => h("div", { class: "row between" }, h("span", {}, b.text), h("span", { class: "amount" }, b.amount))))
-          : null,
-        view.demoArmed ? note("A demo flight cancellation is armed, not fired. No payment-service run was started.") : null,
-        h("div", { class: "actions" }, button("Preview the demo impact", () => actions.previewImpact(view.tripId), ui, "secondary")),
+        actionRow(view.actions, actions, ui),
+      ];
+      break;
+    case "reconcile":
+      body = [
+        h("h2", {}, "Orders checked"),
+        h("p", {}, `${view.bookings} bookings and their expenses both come to ${view.total}.`),
+        h("p", { class: "muted small" }, "No mismatch. No payment is needed and no merchant was contacted."),
       ];
       break;
     case "impact":
       body = [
-        h("div", { class: "chips" }, chip("Simulated travel data"), view.preview ? chip("Preview · nothing changed") : chip("Confirmed simulation", "accent", "check")),
-        h("h2", {}, "Demo flight cancellation"),
+        simulatedTag(),
+        h("h2", {}, view.preview ? "Preview: a fictional flight cancellation" : "Simulated cancellation recorded"),
+        view.preview ? h("p", { class: "muted" }, "Nothing has changed. It costs nothing to confirm.") : null,
         h(
           "ul",
           { class: "list" },
@@ -156,25 +216,23 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
             h(
               "li",
               { class: "item" },
-              h("div", { class: "item-text" }, h("span", { class: "strong" }, r.label), h("span", { class: "muted small" }, r.evidence), h("span", { class: "mono muted" }, r.rule)),
-              chip(r.statusLabel, r.tone, r.tone === "danger" ? "alert" : r.tone === "warning" ? "clock" : "check"),
+              h(
+                "div",
+                { class: "item-text" },
+                h("div", { class: "row between" }, h("span", { class: "strong" }, r.label), chip(r.statusLabel, r.tone)),
+                h("span", { class: "muted small" }, `${r.provenance}. ${r.evidence}`),
+              ),
             ),
           ),
         ),
         note("No airline was contacted. No refund was requested."),
-        view.preview
-          ? h("div", { class: "actions" }, button("Confirm this simulated cancellation", () => actions.confirmImpact(view), ui), h("span", { class: "muted small" }, "Free · no payment"))
-          : h(
-              "div",
-              { class: "actions" },
-              button("See recovery options", () => actions.options(view.tripId), ui, "secondary"),
-              button("Get the after-sales quote", () => actions.quote(view.tripId), ui),
-            ),
+        actionRow(view.actions, actions, ui),
       ];
       break;
     case "options":
       body = [
         h("h2", {}, "Recovery options"),
+        h("p", { class: "muted" }, "Nothing has been bought. You can stop here."),
         h(
           "ul",
           { class: "list" },
@@ -185,144 +243,200 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
               h(
                 "div",
                 { class: "item-text" },
-                h("span", { class: "strong" }, o.title),
+                h("div", { class: "row between" }, h("span", { class: "strong" }, o.title), o.cost ? h("span", { class: "amount" }, o.cost) : null),
                 h("span", { class: "small" }, o.summary),
                 h("span", { class: "muted small" }, o.timing),
                 h("span", { class: "muted small" }, o.limitations),
               ),
-              o.cost ? h("span", { class: "amount" }, o.cost) : null,
             ),
           ),
         ),
-        note("No purchase, submission or merchant contact was made."),
-        h("div", { class: "actions" }, button("Get the after-sales quote", () => actions.quote(view.tripId), ui)),
+        // Offered, not pushed: nothing in this card is a main action.
+        actionRow(view.actions, actions, ui, "secondary"),
       ];
       break;
     case "delivery":
       body = view.paid
         ? [
-            chip("Payment verified", "accent", "check"),
-            h("h2", {}, "Your prepared drafts"),
+            chip("Payment verified.", "accent", "check"),
+            h("h2", {}, "Your three drafts"),
             h(
               "ul",
               { class: "list" },
-              view.materials.map((m) => h("li", { class: "item" }, h("div", { class: "item-text" }, h("span", { class: "strong" }, m.kind), h("span", { class: "small pre" }, m.text)))),
+              view.materials.map((m, i) =>
+                h(
+                  "li",
+                  { class: "item" },
+                  h(
+                    "details",
+                    { class: "draft", open: i === 0 },
+                    h("summary", {}, h("span", { class: "strong" }, m.title), h("span", { class: "muted small" }, "Draft. Not sent.")),
+                    h("p", { class: "small pre" }, m.text),
+                  ),
+                ),
+              ),
             ),
-            h("div", { class: "chips" }, chip(`Tracking: ${view.trackingState || "prepared"}`)),
-            note("Drafts only. Not sent. Only you can send them to merchants."),
+            h("p", { class: "muted small" }, "Only you can send these. CozyTrip contacted no one."),
+            h("p", { class: "muted small" }, `Progress: ${view.followUp}`),
           ]
         : [
-            chip("Not confirmed yet", "warning", "clock"),
-            h("h2", {}, "Payment not confirmed yet"),
-            h("p", { class: "muted" }, "No materials until the receipt shows the capture and a passed verification."),
-            h("div", { class: "actions" }, button("Check again", () => actions.verify(view.tripId, view.runId), ui, "secondary")),
+            h("h2", {}, PENDING[view.pending].title),
+            h("p", { class: "muted" }, PENDING[view.pending].body),
+            actionRow(view.actions, actions, ui),
           ];
       break;
     case "quote": {
       const s = quoteStage(view, ui.now);
-      const side =
-        s.stage === "approve"
-          ? h("div", { class: "col right" }, h("span", { class: "muted small" }, "Code expires"), h("span", { class: "strong" }, `in ${s.minutesLeft} min`))
-          : s.stage === "approved"
-            ? chip("Approved", "accent", "check")
-            : chip("Code expired", "neutral");
-      const next =
-        s.stage === "approve"
-          ? [button(`Approve ${view.price} service fee`, () => actions.approve(view), ui)]
-          : s.stage === "approved"
-            ? [button("Show the payment link", () => actions.approve(view), ui)]
-            : [button("Get a new quote", () => actions.quote(view.tripId), ui, "secondary")];
       body = [
         view.stub ? stubBanner() : null,
         h("h2", {}, view.title),
-        h(
-          "div",
-          { class: "panel row between end" },
-          h("div", { class: "col" }, h("span", { class: "price" }, view.price), h("span", { class: "muted small" }, "per verified result · from the payment-service price list")),
-          side,
-        ),
-        h(
-          "ol",
-          { class: "numbered" },
-          h("li", {}, `You approve the ${view.price} service fee here.`),
-          h("li", {}, "CozyTrip creates a PayPal Sandbox order. You approve it on PayPal."),
-          h("li", {}, "The recovery pack comes only after the payment is captured and the result is verified."),
-        ),
-        h("div", { class: "actions" }, ...next),
-        h(
-          "p",
-          { class: "muted small" },
-          s.stage === "approved"
-            ? "You approved this fee earlier. The same payment link opens again; no second order is created."
-            : s.stage === "expired"
-              ? "This confirmation code expired. A new quote opens a new run; nothing was charged."
-              : "No PayPal order exists until you approve.",
-        ),
+        h("p", { class: "price" }, view.price),
+        view.scope.length ? h("ul", { class: "scope" }, view.scope.map((item) => h("li", {}, item))) : null,
+        s.stage === "approve"
+          ? [
+              h("p", { class: "muted small" }, "Not paid. No PayPal order exists until you confirm."),
+              actionRow(view.actions, actions, ui),
+              h("p", { class: "muted small" }, `This quote is good for ${s.minutesLeft} min.`),
+            ]
+          : s.stage === "approved"
+            ? [h("p", { class: "muted small" }, "You confirmed this fee earlier. This uses the same order, not a new one."), actionRow(view.actions, actions, ui)]
+            : [
+                h("p", { class: "muted small" }, "This quote expired. No order was created from it."),
+                h("div", { class: "actions" }, button("Get a new quote", () => actions.run({ label: "Get a new quote", tool: "quote_service", args: { trip_id: view.tripId } }), ui, "secondary")),
+              ],
       ];
       break;
     }
     case "paypal_checkout":
+    case "payment": {
+      const key = checkoutKey(view);
+      const c = ui.checkouts[key];
+      const real = view.kind === "paypal_checkout";
+      const openLabel = real ? "Open PayPal" : view.stub ? "Open stub checkout" : "Open PayPal Sandbox";
+      const check = needsCheck(c) ? button("Check again", () => actions.run(checkFee(view.tripId, view.runId)), ui) : null;
+      const open = openButton(key, view.approveUrl, c, openLabel, actions, ui);
       body = [
-        h("p", {}, "Real PayPal Sandbox transaction"),
-        h("h2", {}, "Open PayPal"),
-        h("p", {}, "PayPal Sandbox — test money only"),
-        view.displayAmount ? h("p", { class: "price" }, view.displayAmount) : null,
-        ui.paypal?.phase === "verifying"
-          ? h("div", {}, h("p", { role: "status" }, "No verified capture yet."), h("div", { class: "actions" }, button("Check again", () => actions.verify(view.tripId, view.runId), ui, "secondary")))
-          : ui.paypal?.phase === "fallback"
-          ? ui.manualLink
-            ? h("p", { class: "small" }, "Copy this link into your browser: ", h("span", { class: "mono select" }, ui.manualLink))
-            : h("div", { class: "actions" }, button("Open PayPal", () => actions.openCheckout(view), ui, "primary", "external"))
-          : h("div", { class: "paypal-button-slot" }, ui.paypal?.button ?? h("p", { role: "status", class: "muted" }, "Loading PayPal…")),
-        note("Not paid yet. Payment counts only when the receipt shows the capture and a passed verification."),
+        view.stub ? stubBanner() : null,
+        h("h2", {}, "Order ready. Not paid yet."),
+        view.stub ? null : h("p", {}, "PayPal Sandbox — test money only"),
+        real && view.displayAmount ? h("p", { class: "price" }, view.displayAmount) : null,
+        checkoutStatus(c),
+        check || open ? h("div", { class: "actions" }, check, open) : null,
+        c?.phase === "ready" || c?.phase === "fallback" ? h("p", { class: "muted small" }, "Already paid? Say so in the chat and CozyTrip will check this same order.") : null,
       ];
       break;
-    case "payment":
+    }
+    case "split_quote":
       body = [
-        view.stub ? stubBanner() : sandboxBanner(),
-        chip(view.stateLabel, "warning", "clock"),
-        h("h2", {}, view.stub ? "Approve the service fee on the stub checkout" : "Approve the service fee on PayPal Sandbox"),
+        simulatedTag(),
+        h("h2", {}, "Split the airport pickup"),
+        h("p", { class: "muted" }, `${view.total} prepaid by Maya, shared three ways.`),
         h(
-          "div",
-          { class: "panel grid2" },
-          h("div", { class: "col" }, h("span", { class: "muted small" }, "Order"), h("span", { class: "mono" }, view.chargeId)),
-          h("div", { class: "col" }, h("span", { class: "muted small" }, "Run"), h("span", { class: "mono" }, view.runId)),
+          "ul",
+          { class: "list" },
+          view.rows.map((r) =>
+            h(
+              "li",
+              { class: "item" },
+              h("div", { class: "item-text" }, h("span", { class: "strong" }, r.name), h("span", { class: "muted small" }, r.prepaid ? "Prepaid in the sample" : `Share ${r.share}`)),
+              h("span", { class: "amount" }, `${r.due} due`),
+            ),
+          ),
         ),
-        h(
-          "div",
-          { class: "actions" },
-          button(view.stub ? "Open stub checkout" : "Open PayPal Sandbox", () => actions.openCheckout(view), ui, "primary", "external"),
-          button("Check my payment", () => actions.verify(view.tripId, view.runId), ui, "secondary"),
-        ),
-        ui.manualLink ? h("p", { class: "small" }, "Copy this link into your browser: ", h("span", { class: "mono select" }, ui.manualLink)) : null,
-        note("Not paid yet. Payment counts only when the receipt shows the capture and a passed verification."),
+        note(view.notice),
+        note(view.payeeNotice),
+        actionRow(view.actions, actions, ui),
+      ];
+      break;
+    case "split": {
+      const payable = view.rows.filter((r) => r.payable);
+      const anyCheck = payable.some((r) => needsCheck(ui.checkouts[shareKey(r)]));
+      const openLabel = view.stub ? "Open stub checkout" : "Open PayPal";
+      body = [
+        simulatedTag(),
+        h("h2", {}, view.rows.length === 0 ? "No share requests yet" : view.allPaid ? "All shares paid" : "Airport pickup shares"),
+        view.rows.length
+          ? h(
+              "ul",
+              { class: "list" },
+              view.rows.map((r) => {
+                const key = shareKey(r);
+                const c = ui.checkouts[key];
+                const open = r.payable ? openButton(key, r.approveUrl, c, openLabel, actions, ui, `Open PayPal for ${r.name}'s share`) : null;
+                return h(
+                  "li",
+                  { class: "item item-stack" },
+                  h(
+                    "div",
+                    { class: "row between" },
+                    h("div", { class: "col" }, h("span", { class: "strong" }, `${r.name}'s share`), h("span", { class: "muted small" }, r.amount)),
+                    chip(r.stateLabel, r.paid ? "accent" : r.payable ? "warning" : "neutral", r.paid ? "check" : undefined),
+                  ),
+                  r.payable ? checkoutStatus(c) : null,
+                  open ? h("div", { class: "actions" }, open) : null,
+                );
+              }),
+            )
+          : h("p", { class: "muted" }, "Nothing has been requested."),
+        view.rows.length ? h("p", { class: "muted small" }, `${view.organizer.name} owes ${view.organizer.due} and has no payment.`) : null,
+        anyCheck ? h("div", { class: "actions" }, button("Check again", () => actions.run(checkShares(view.tripId)), ui)) : actionRow(view.actions, actions, ui),
+        payable.some((r) => ["ready", "fallback"].includes(ui.checkouts[shareKey(r)]?.phase ?? "")) ? h("p", { class: "muted small" }, "Already paid? Say so in the chat and CozyTrip will check these shares.") : null,
+        view.rows.length ? note(view.notice) : null,
+        view.rows.length ? note(view.payeeNotice) : null,
+      ];
+      break;
+    }
+    case "case_preview":
+      body = [
+        h("h2", {}, `Record: ${view.proposed}?`),
+        h("p", { class: "muted" }, `Currently: ${view.current}. Nothing is recorded until you confirm.`),
+        view.note ? h("p", { class: "small" }, `Your note: ${view.note}`) : null,
+        view.evidence ? h("p", { class: "small" }, `Your evidence: ${view.evidence}`) : null,
+        h("p", { class: "muted small" }, "This covers the whole service order, not each draft. It is your report, and CozyTrip sends nothing."),
+        actionRow(view.actions, actions, ui),
+      ];
+      break;
+    case "case_record":
+      body = [
+        h("h2", {}, `Recorded: ${view.state}`),
+        h("p", { class: "muted" }, "From your own report, for the whole service order. CozyTrip contacted no one."),
+        view.note ? h("p", { class: "small" }, `Your note: ${view.note}`) : null,
+        view.evidence ? h("p", { class: "small" }, `Your evidence: ${view.evidence}`) : null,
       ];
       break;
     case "status":
       body = [
-        ...view.trips.map((t) =>
-          h(
-            "div",
-            { class: "panel row between" },
-            h("div", { class: "col" }, h("span", { class: "strong" }, t.title), h("span", { class: "muted small" }, `${t.dates} · ${t.bookings} bookings${t.simulated ? " · Simulated travel data" : ""}`)),
-            chip(t.state === "draft" ? "Draft" : t.state, "accent"),
-          ),
-        ),
-        view.runs.length ? view.runs.map(runBlock) : h("p", { class: "muted" }, "No payment-service runs."),
-        view.payments.length
+        ...view.trips.map((t) => [
+          t.simulated ? simulatedTag() : null,
+          h("h2", {}, t.title),
+          h("p", { class: "muted" }, `${t.dates} · ${t.bookings} bookings`),
+        ]),
+        view.runs.length || view.payments.length || view.followUp
           ? h(
-              "div",
-              { class: "panel" },
-              h("span", { class: "strong small" }, "Airport pickup split (Sandbox)"),
-              view.payments.map((p) => h("div", { class: "row between" }, h("span", {}, p.name), h("span", { class: "small muted" }, `${p.state}${p.prompt ? " · payment requested" : ""}`))),
+              "ul",
+              { class: "list" },
+              view.runs.length ? h("li", { class: "item" }, h("div", { class: "item-text" }, h("span", { class: "muted small" }, "After-sales drafts"), h("span", {}, view.runs[view.runs.length - 1].sentence))) : null,
+              view.followUp ? h("li", { class: "item" }, h("div", { class: "item-text" }, h("span", { class: "muted small" }, "Follow-up"), h("span", {}, `${view.followUp}${view.followUp === "Prepared" ? "" : " (your report)"}`))) : null,
+              view.payments.length
+                ? h(
+                    "li",
+                    { class: "item" },
+                    h("div", { class: "item-text" }, h("span", { class: "muted small" }, "Airport pickup shares"), h("span", {}, view.payments.map((p) => `${p.name}: ${p.stateLabel}`).join(" · "))),
+                  )
+                : null,
             )
           : null,
-        note("Returning from PayPal does not mean paid. The receipt decides."),
-        view.trips[0] ? h("div", { class: "actions" }, button("Refresh", () => actions.refresh(view.trips[0].tripId), ui, "secondary")) : null,
+        actionRow(view.actions, actions, ui),
+        runDetails(view.runs),
       ];
       break;
     case "error":
-      body = [h("div", { class: "row" }, icon("alert", "icon danger"), h("h2", {}, "That did not go through")), h("p", {}, view.message), h("p", { class: "mono muted small" }, view.code)];
+      body = [
+        h("div", { class: "row" }, icon("alert", "icon danger"), h("h2", {}, "That did not go through")),
+        h("p", {}, view.message),
+        actionRow(view.actions, actions, ui, "secondary"),
+        h("details", { class: "details" }, h("summary", {}, "Details"), h("p", { class: "mono muted small" }, view.code)),
+      ];
       break;
     default:
       body = [h("p", { class: "muted" }, "Waiting for CozyTrip…")];

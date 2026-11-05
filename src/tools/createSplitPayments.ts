@@ -6,7 +6,7 @@ import { splitStatus } from "../domain/settlements";
 import { formatUsd } from "../domain/money";
 import { createSettlement } from "../paymentService";
 import { PAYEE_NOTICE, SPLIT_NOTICE } from "./quoteSplit";
-import { fail, type ToolContext } from "./common";
+import { fail, paymentReality, type ToolContext } from "./common";
 import { guided, sharesGuidance } from "./guidance";
 export const name = "create_split_payments";
 export const description =
@@ -110,6 +110,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         SPLIT_NOTICE,
       {
         trip_id: args.trip_id,
+        reality: paymentReality(ctx.env),
         payments,
         organizer: { name: "Maya", due_minor: 0, display_due: formatUsd(0), prompt: false },
         disclaimer: SPLIT_NOTICE,

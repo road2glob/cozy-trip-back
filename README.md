@@ -95,17 +95,21 @@ The `initialize` result carries the product's rules as server instructions (`src
 
 ## In-chat cards (MCP Apps)
 
-Hosts that support MCP Apps (Claude, ChatGPT, VS Code and others) also render a card next to these tools' results; other hosts show the text, which always carries the price, the code and the link. One page, `ui://cozytrip/card.html`, picks its view from the tool's `structuredContent`:
+Hosts that support MCP Apps (Claude, ChatGPT, VS Code and others) also render a card next to these tools' results; other hosts show the text, which always carries the price, the code and the link. One page, `ui://cozytrip/card.html`, picks its view from the tool's `structuredContent` and takes its buttons from `guidance`, so a card only offers what the server allows from that state:
 
-| Tool | Card | Next step in the card |
+| Tool | Card | Main action |
 |---|---|---|
-| `get_status` | Empty ledger, or trips with run steps and split state | Import the sample trip · Refresh |
-| `import_orders` | Trip, bookings, balances | Preview the demo impact |
-| `detect_impact` | Four bookings with status and rule | Confirm the simulation (local code) · Options · Quote |
-| `plan_options` | Three recovery options | Get the after-sales quote |
-| `quote_service` | USD 9.90, code expiry or already approved | Approve the service fee |
-| `create_service_payment` | Awaiting payment | Open checkout (host opens the link) · Check my payment |
-| `verify_payment` | Not confirmed yet, or the delivered drafts | Check again |
+| `get_status` | Empty ledger, or where the trip stands (IDs and steps under Details) | Import sample trip, or the next step for that state |
+| `import_orders` | Trip, bookings, total | Next step for that state |
+| `reconcile_trip` | Orders checked | None: read-only |
+| `detect_impact` | Four bookings with status and evidence label | Confirm simulation · See recovery options |
+| `plan_options` | Three recovery options; you can stop here | Get a quote for the drafts (secondary) |
+| `quote_service` | USD 9.90, what it covers, not paid | Confirm USD 9.90 |
+| `create_service_payment` | Order ready, not paid | PayPal button, or Open PayPal, then Check again |
+| `verify_payment` | No verified capture yet, checking, or three drafts marked Draft. Not sent. | Check again, or none |
+| `quote_split` | Three shares, Maya owes USD 0.00 | Confirm split |
+| `create_split_payments`, `split_status` | Each share paid or not; a payment control for each unpaid share | PayPal button for each share, then Check again |
+| `update_case_status` | Your report, for the whole service order | Confirm my report, or none |
 
 Buttons go through the host (`tools/call`, `ui/open-link`) and the server checks every input as it does for the model, so the card adds no new way in. The card is built from `ui/` into `src/ui/cardHtml.generated.ts` (inline CSS and JS only; the default MCP Apps CSP allows nothing else): run `npm run build:ui` after editing `ui/`; a test fails if the generated file is stale. To view cards locally, run `npx @modelcontextprotocol/inspector@latest`, add the Streamable HTTP server `http://localhost:8788/mcp` with header `Authorization: Bearer <token>`, connect and open **Apps**.
 

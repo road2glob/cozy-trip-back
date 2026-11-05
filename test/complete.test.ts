@@ -343,15 +343,12 @@ describe("complete flow safety and delivery", () => {
     expect(result.output.materials[0].text).toContain(prose[0]);
     expect(result.output.materials.every(m => m.text.endsWith("Draft. Not sent."))).toBe(true);
   });
-  it("unsafe AI claims and invented numbers fall back to templates", async () => {
+  it.each(["text", "parsed"])("unsafe AI claims in %s responses fall back to templates", async (format) => {
+    const unsafe = ["Already refunded USD 999", "Approved", "Submitted"];
     const { env } = testEnv({
       AI: {
         run: vi.fn(async () => ({
-          response: JSON.stringify([
-            "Already refunded USD 999",
-            "Approved",
-            "Submitted",
-          ]),
+          response: format === "text" ? JSON.stringify(unsafe) : unsafe,
         })),
       } as unknown as Ai,
     });

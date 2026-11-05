@@ -212,6 +212,11 @@ export interface PaymentView {
   replay: boolean;
 }
 
+export interface PayPalCheckoutView extends PaymentView {
+  paypalOrderId: string;
+  displayAmount: string;
+}
+
 export function paymentView(sc: Rec): PaymentView {
   const state = str(sc.state);
   return {
@@ -324,6 +329,7 @@ export type CardView =
   | ({ kind: "options" } & OptionsView)
   | ({ kind: "quote" } & QuoteView)
   | ({ kind: "payment" } & PaymentView)
+  | ({ kind: "paypal_checkout" } & PayPalCheckoutView)
   | ({ kind: "delivery" } & DeliveryView)
   | { kind: "unknown" };
 
@@ -331,6 +337,10 @@ export type CardView =
 export function cardFor(structured: unknown): CardView {
   if (!isRec(structured)) return { kind: "unknown" };
   if (isRec(structured.error)) return { kind: "error", code: str(structured.error.code), message: str(structured.error.message) };
+  if (structured.view === "paypal_checkout" && structured.reality === "paypal_sandbox" && structured.state === "awaiting-payment" &&
+      typeof structured.paypalOrderId === "string" && structured.paypalOrderId && typeof structured.approveUrl === "string" && "chargeId" in structured) {
+    return { kind: "paypal_checkout", ...paymentView(structured), paypalOrderId: structured.paypalOrderId, displayAmount: str(structured.display_amount) };
+  }
   if (typeof structured.approveUrl === "string" && "chargeId" in structured) return { kind: "payment", ...paymentView(structured) };
   if (structured.codeKind === "approval") return { kind: "quote", ...quoteView(structured) };
   if (Array.isArray(structured.impacts)) return { kind: "impact", ...impactView(structured) };

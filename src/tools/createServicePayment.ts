@@ -3,6 +3,7 @@ import { getTripDetail } from "../domain/trips";
 import { serviceOrderByRun, updateServiceOrder, type ServiceOrderRow } from "../domain/serviceOrders";
 import { isTerminal } from "../domain/runStates";
 import { newId } from "../domain/ids";
+import { formatUsd } from "../domain/money";
 import { createCharge, decideApproval, getReceipt, getRun, PaymentServiceError, type Charge } from "../paymentService";
 import {
   NOT_PAID_UNTIL_RECEIPT,
@@ -39,6 +40,7 @@ function paymentResult(ctx: ToolContext, so: ServiceOrderRow, charge: Charge, re
     state: charge.state,
     replay,
     reality: paymentReality(ctx.env),
+    ...(!isStub(ctx.env) && charge.paypalOrderId ? { view: "paypal_checkout", display_amount: formatUsd(charge.amountMinor) } : {}),
   };
   const lines = [
     replay ? `The service-fee order for run ${so.run_id} already exists. Same link:` : `Service-fee order created for run ${so.run_id}. Approve it here:`,

@@ -14,6 +14,7 @@
   "vars": {
     // Deployed default; .dev.vars overrides it with "stub" locally
     "TASKPASS_TRANSPORT": "binding",
-    "PUBLIC_RETURN_ORIGIN": "https://mcp.cozytrip.dev"
+    "PUBLIC_RETURN_ORIGIN": "https://mcp.cozytrip.dev",
+    "PAYPAL_CLIENT_ID_PUBLIC": "BAA5hRHkT0cCT5GkG3tde5-ENk0cW7SaLg2wHyPb4PoyZsgR-C1tgg2JgKY4fXfgPFf59CAY6pjb7e7cPI"
   }
 }

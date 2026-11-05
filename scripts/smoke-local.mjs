@@ -39,12 +39,32 @@ check("initialize with demo token", hello.httpStatus === 200 && hello.result?.se
 
 const tools = (await rpc("tools/list", {})).result.tools;
 const names = tools.map((t) => t.name).sort();
-check("exactly four tools", JSON.stringify(names) === JSON.stringify(["create_service_payment", "get_status", "import_orders", "quote_service"]), names.join(", "));
+// update_case_status appears only after a paid, verified delivery
+const EXPECTED_TOOLS = [
+  "create_service_payment", "create_split_payments", "detect_impact", "get_status", "import_orders", "plan_options",
+  "quote_service", "quote_split", "reconcile_trip", "split_status", "verify_payment",
+];
+check("the eleven tools for a new user", JSON.stringify(names) === JSON.stringify(EXPECTED_TOOLS), names.join(", "));
+
+// MCP Apps card: the tools it has views for point at the one ui:// resource (self-contained HTML)
+const CARD_URI = "ui://cozytrip/card.html";
+const CARD_TOOLS = ["create_service_payment", "detect_impact", "get_status", "import_orders", "plan_options", "quote_service", "verify_payment"];
+const linked = tools.filter((t) => t._meta?.ui?.resourceUri === CARD_URI).map((t) => t.name).sort();
+check("card linked on exactly the tools it has views for", JSON.stringify(linked) === JSON.stringify(CARD_TOOLS), linked.join(", "));
+const card = (await rpc("resources/read", { uri: CARD_URI })).result?.contents?.[0];
+check(
+  "card resource: MCP Apps MIME type, inline only",
+  card?.mimeType === "text/html;profile=mcp-app" && card.text.includes('<main id="root"') && !/<script[^>]+src=|<link[^>]+href=/i.test(card.text),
+  card ? `${Math.round(card.text.length / 1024)} KiB` : "missing",
+);
 
 const empty = await call("get_status");
 check(
   "first get_status is empty",
-  JSON.stringify(empty.structuredContent) === JSON.stringify({ trips: [], runs: [], run_count: 0, split_payments: [] }) &&
+  empty.structuredContent.trips.length === 0 &&
+    empty.structuredContent.runs.length === 0 &&
+    empty.structuredContent.run_count === 0 &&
+    empty.structuredContent.split_payments.length === 0 &&
     !/seattle|paypal|usd|\$|split/i.test(text(empty)),
   text(empty),
 );
@@ -58,6 +78,12 @@ const tripId = imp1.structuredContent.trip_id;
 check("sample import: demo_event armed", imp1.structuredContent.demo_event === "armed", tripId);
 check("second import returns the same trip_id", imp2.structuredContent.trip_id === tripId);
 check("still no runs", (await call("get_status")).structuredContent.run_count === 0);
+
+// A quote needs a confirmed impact: preview (nothing changes), then confirm with the local code.
+const preview = await call("detect_impact", { trip_id: tripId });
+check("impact preview: local code, nothing changed", preview.structuredContent.preview === true && preview.structuredContent.codeKind === "local");
+const confirmed = await call("detect_impact", { trip_id: tripId, confirmation_code: preview.structuredContent.confirmation_code });
+check("impact confirmed: zero-price run", confirmed.structuredContent.preview === false && !!confirmed.structuredContent.runId);
 
 const quote = await call("quote_service", { trip_id: tripId });
 const q = quote.structuredContent;

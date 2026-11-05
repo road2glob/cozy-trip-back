@@ -3,7 +3,7 @@ import { getTripDetail, importSampleTrip } from "../domain/trips";
 import { reminderTablesExist } from "../domain/reminders";
 import { formatUsd } from "../domain/money";
 import { SIMULATED_NOTICE, fail, type ToolContext, type ToolResult } from "./common";
-import { guided, nextStep } from "./guidance";
+import { guided, nextStep, withGuidance } from "./guidance";
 
 export const name = "import_orders";
 export const description =
@@ -17,8 +17,11 @@ export const annotations = { readOnlyHint: false, destructiveHint: false, idempo
 
 export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): Promise<ToolResult> {
   if (args.mode === "text") {
-    // Phase 1: no Workers AI call, no parsing.
-    return fail("model_not_enabled", "Text import is not enabled yet. Use mode sample.");
+    return withGuidance(fail("model_not_enabled", "This competition version supports the fictional sample only. It cannot read real orders or an inbox. Nothing was imported."), {
+      fact: "CozyTrip cannot read real orders or an inbox in this version, and nothing was imported.",
+      next_steps: [nextStep.importSample()],
+      end: null,
+    });
   }
 
   const { tripId, created } = await importSampleTrip(ctx.env.DB, ctx.userId);

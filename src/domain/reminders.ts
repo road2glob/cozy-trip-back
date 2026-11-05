@@ -101,7 +101,7 @@ export function buildPlan(d: TripDetail, now: number, settings: ReminderSettings
     drafts.push({
       key: "unpaid-shares",
       what: `Pickup shares still unpaid: ${facts.unpaidShares.join(", ")}`,
-      lead: "2 days before departure, until paid",
+      lead: "2 days before departure, only in your calendar, until paid",
       local: `${addDays(departure, -2)}T${notify}`,
     });
   }

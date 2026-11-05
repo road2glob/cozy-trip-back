@@ -81,8 +81,8 @@ export interface UiState {
 }
 
 const brand = () => h("div", { class: "brand" }, h("span", { class: "logo" }, icon("pin", "icon icon-sm")), h("span", {}, "CozyTrip"));
+const sampleTag = (text: string) => h("span", { class: "chip chip-sim" }, text);
 const chip = (text: string, tone = "neutral", iconName?: string) => h("span", { class: `chip chip-${tone}` }, iconName ? icon(iconName, "icon icon-xs") : null, text);
-const simulatedTag = () => h("span", { class: "chip chip-sim" }, "Simulated travel data");
 const button = (label: string, onClick: () => void, ui: UiState, kind: "primary" | "secondary" = "primary", iconName?: string, ariaLabel?: string) =>
   h("button", { type: "button", class: `btn btn-${kind}`, disabled: ui.busy, "aria-label": ariaLabel, onclick: () => onClick() }, label, iconName ? icon(iconName, "icon icon-sm") : null);
 const note = (text: string) => h("p", { class: "note" }, icon("info", "icon icon-sm muted"), h("span", {}, text));
@@ -165,9 +165,13 @@ const PENDING: Record<string, { title: string; body: string }> = {
   closed: { title: "This order is closed", body: "No drafts were delivered from it." },
 };
 
+const SIMULATED = "Simulated travel data";
+
 export function render(root: HTMLElement, view: CardView, actions: Actions, ui: UiState): void {
   root.setAttribute("aria-busy", ui.busy ? "true" : "false");
   let body: Array<Child | Child[]>;
+  // Beside the name rather than on a row of its own, so the card opens on its one sentence.
+  let tag: Child = null;
   switch (view.kind) {
     case "empty":
       body = [
@@ -178,8 +182,8 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       ];
       break;
     case "trip":
+      tag = view.simulated ? sampleTag(SIMULATED) : null;
       body = [
-        view.simulated ? simulatedTag() : null,
         h("h2", {}, view.title),
         h("p", { class: "muted" }, `${view.dates} · ${view.travelers.length} travelers: ${view.travelers.map((t) => t.name).join(", ")}`),
         h(
@@ -207,8 +211,8 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       ];
       break;
     case "impact":
+      tag = sampleTag(SIMULATED);
       body = [
-        simulatedTag(),
         h("h2", {}, view.preview ? "Preview: a fictional flight cancellation" : "Simulated cancellation recorded"),
         view.preview ? h("p", { class: "muted" }, "Nothing has changed. It costs nothing to confirm.") : null,
         h(
@@ -258,9 +262,9 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       ];
       break;
     case "delivery":
+      tag = view.paid ? chip("Payment verified.", "good", "check") : null;
       body = view.paid
         ? [
-            chip("Payment verified.", "accent", "check"),
             h("h2", {}, "Your three drafts"),
             h(
               "ul",
@@ -268,7 +272,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
               view.materials.map((m, i) =>
                 h(
                   "li",
-                  { class: "item" },
+                  { class: "item item-draft" },
                   h(
                     "details",
                     { class: "draft", open: i === 0 },
@@ -321,7 +325,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
         view.stub ? stubBanner() : null,
         h("h2", {}, "Order ready. Not paid yet."),
         view.stub ? null : h("p", {}, "PayPal Sandbox — test money only"),
-        real && view.displayAmount ? h("p", { class: "price" }, view.displayAmount) : null,
+        view.displayAmount ? h("p", { class: "price" }, view.displayAmount) : null,
         checkoutStatus(c),
         check || open ? h("div", { class: "actions" }, check, open) : null,
         c?.phase === "ready" || c?.phase === "fallback" ? h("p", { class: "muted small" }, "Already paid? Say so in the chat and CozyTrip will check this same order.") : null,
@@ -329,8 +333,8 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       break;
     }
     case "split_quote":
+      tag = sampleTag(SIMULATED);
       body = [
-        simulatedTag(),
         h("h2", {}, "Split the airport pickup"),
         h("p", { class: "muted" }, `${view.total} prepaid by Maya, shared three ways.`),
         h(
@@ -354,8 +358,8 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       const payable = view.rows.filter((r) => r.payable);
       const anyCheck = payable.some((r) => needsCheck(ui.checkouts[shareKey(r)]));
       const openLabel = view.stub ? "Open stub checkout" : "Open PayPal";
+      tag = sampleTag(SIMULATED);
       body = [
-        simulatedTag(),
         h("h2", {}, view.rows.length === 0 ? "No share requests yet" : view.allPaid ? "All shares paid" : "Airport pickup shares"),
         view.rows.length
           ? h(
@@ -372,7 +376,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
                     "div",
                     { class: "row between" },
                     h("div", { class: "col" }, h("span", { class: "strong" }, `${r.name}'s share`), h("span", { class: "muted small" }, r.amount)),
-                    chip(r.stateLabel, r.paid ? "accent" : r.payable ? "warning" : "neutral", r.paid ? "check" : undefined),
+                    chip(r.stateLabel, r.paid ? "good" : r.payable ? "warning" : "neutral", r.paid ? "check" : undefined),
                   ),
                   r.payable ? checkoutStatus(c) : null,
                   open ? h("div", { class: "actions" }, open) : null,
@@ -391,8 +395,8 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
     case "reminder_plan": {
       const set = view.rows.filter((r) => r.state === "written").length;
       const left = view.rows.length - set;
+      tag = sampleTag(view.label);
       body = [
-        h("span", { class: "chip chip-sim" }, view.label),
         h("h2", {}, "Reminder plan"),
         h(
           "p",
@@ -416,7 +420,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
                   h(
                     "div",
                     { class: "item-text" },
-                    h("div", { class: "row between" }, h("span", { class: "strong" }, r.what), REMINDER_STATE[r.state] ? chip(REMINDER_STATE[r.state], r.state === "written" ? "accent" : "warning") : null),
+                    h("div", { class: "row between" }, h("span", { class: "strong" }, r.what), REMINDER_STATE[r.state] ? chip(REMINDER_STATE[r.state], r.state === "written" ? "good" : "warning") : null),
                     h("span", { class: "small" }, `${r.when} · Beijing ${r.beijing}`),
                     h("span", { class: "muted small" }, r.lead),
                   ),
@@ -425,10 +429,10 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
             )
           : null,
         view.removals.map((title) => h("p", { class: "small" }, `To remove from your calendar: ${title}`)),
-        h("p", { class: "muted small" }, `Times are ${view.timezone}. Calendar: ${view.calendarName || "not chosen yet"}.`),
-        view.notes.map((n) => h("p", { class: "muted small" }, n)),
+        h("p", { class: "muted small" }, `Times are ${view.timezone}, with Beijing time beside them. Calendar: ${view.calendarName || "not chosen yet"}.`),
         actionRow(view.actions, actions, ui),
         view.actions.length ? h("p", { class: "muted small" }, "Want other times or fewer reminders? Say so in the chat.") : null,
+        view.notes.length ? h("details", { class: "details" }, h("summary", {}, "Notes"), view.notes.map((n) => h("p", { class: "small" }, n))) : null,
       ];
       break;
     }
@@ -446,7 +450,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
               h(
                 "div",
                 { class: "item-text" },
-                h("div", { class: "row between" }, h("span", { class: "strong" }, r.what), chip(r.outcome, r.failed ? "danger" : "accent", r.failed ? undefined : "check")),
+                h("div", { class: "row between" }, h("span", { class: "strong" }, r.what), chip(r.outcome, r.failed ? "danger" : "good", r.failed ? undefined : "check")),
                 r.when ? h("span", { class: "small" }, `${r.when} · Beijing ${r.beijing}`) : null,
                 r.detail ? h("span", { class: "muted small" }, r.detail) : null,
               ),
@@ -477,9 +481,9 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       ];
       break;
     case "status":
+      tag = view.trips.some((t) => t.simulated) ? sampleTag(SIMULATED) : null;
       body = [
         ...view.trips.map((t) => [
-          t.simulated ? simulatedTag() : null,
           h("h2", {}, t.title),
           h("p", { class: "muted" }, `${t.dates} · ${t.bookings} bookings`),
         ]),
@@ -512,13 +516,13 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
     case "error":
       body = [
         h("div", { class: "row" }, icon("alert", "icon danger"), h("h2", {}, "That did not go through")),
-        h("p", {}, view.message),
+        h("p", {}, view.sentence),
         actionRow(view.actions, actions, ui, "secondary"),
-        h("details", { class: "details" }, h("summary", {}, "Details"), h("p", { class: "mono muted small" }, view.code)),
+        h("details", { class: "details" }, h("summary", {}, "Details"), h("p", { class: "small" }, view.message), h("p", { class: "mono" }, view.code)),
       ];
       break;
     default:
       body = [h("p", { class: "muted" }, "Waiting for CozyTrip…")];
   }
-  root.replaceChildren(h("div", { class: "card" }, brand(), ...body, notice(ui)));
+  root.replaceChildren(h("div", { class: "card" }, h("div", { class: "head" }, brand(), tag), ...body, notice(ui)));
 }

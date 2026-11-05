@@ -42,7 +42,8 @@ function paymentResult(ctx: ToolContext, so: ServiceOrderRow, charge: Charge, re
     state: charge.state,
     replay,
     reality: paymentReality(ctx.env),
-    ...(!isStub(ctx.env) && unpaid && charge.paypalOrderId ? { view: "paypal_checkout", display_amount: formatUsd(charge.amountMinor) } : {}),
+    display_amount: formatUsd(charge.amountMinor),
+    ...(!isStub(ctx.env) && unpaid && charge.paypalOrderId ? { view: "paypal_checkout" } : {}),
   };
   const lines = [
     ...(unpaid

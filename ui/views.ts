@@ -8,7 +8,7 @@ const arr = (v: unknown): Rec[] => (Array.isArray(v) ? v.filter(isRec) : []);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) ? v : null);
 
-export type Tone = "neutral" | "accent" | "warning" | "danger" | "info";
+export type Tone = "neutral" | "good" | "warning" | "danger" | "info";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -251,12 +251,12 @@ export interface PaymentView {
   runId: string;
   chargeId: string;
   approveUrl: string;
+  displayAmount: string;
   stub: boolean;
 }
 
 export interface PayPalCheckoutView extends PaymentView {
   paypalOrderId: string;
-  displayAmount: string;
 }
 
 export function paymentView(sc: Rec): PaymentView {
@@ -265,6 +265,7 @@ export function paymentView(sc: Rec): PaymentView {
     runId: str(sc.runId),
     chargeId: str(sc.chargeId),
     approveUrl: str(sc.approveUrl),
+    displayAmount: str(sc.display_amount),
     stub: sc.reality === "local_stub",
   };
 }
@@ -510,10 +511,32 @@ function reminderResultsView(sc: Rec): ReminderResultsView {
   };
 }
 
+// ---- errors ---------------------------------------------------------------------------------
+
+/**
+ * Tool error messages are written for the model and can name tools and fields. These say the same thing
+ * to a person. Anything unknown stays deliberately vague: an error alone does not prove what happened.
+ */
+const ERROR_SENTENCE: Record<string, string> = {
+  not_found: "CozyTrip could not find that. Check where things stand before trying again.",
+  confirmation_required: "This step needs your confirmation first. Nothing was done.",
+  invalid_confirmation_code: "That confirmation expired or no longer matches. Nothing was done, so ask for this step again.",
+  approval_expired: "This quote expired. No order was created from it.",
+  already_paid: "This is already paid. No new payment is needed.",
+  quote_required: "There is no quote for this yet. Nothing was created.",
+  delivery_required: "Follow-up starts once the drafts are delivered.",
+  refund_required: "This order did not pass verification, so there are no drafts. A refund is required, which is not the same as refunded.",
+  delivery_unavailable: "No verified drafts are available for this order.",
+  ledger_mismatch: "The booking and expense totals do not match, so no payment is available.",
+  operation_in_progress: "This is already running. Try again in a moment.",
+  model_not_enabled: "This version works with the fictional sample only. It cannot read real orders or an inbox.",
+};
+const UNKNOWN_ERROR = "That step did not finish, and there is no verified result yet. Check where things stand before trying again.";
+
 // ---- dispatch -------------------------------------------------------------------------------
 
 export type CardView =
-  | { kind: "error"; code: string; message: string; actions: CardAction[] }
+  | { kind: "error"; code: string; sentence: string; message: string; actions: CardAction[] }
   | StatusView
   | ({ kind: "trip" } & TripView)
   | ({ kind: "reconcile" } & ReconcileView)
@@ -535,9 +558,12 @@ export type CardView =
 export function cardFor(structured: unknown): CardView {
   if (!isRec(structured)) return { kind: "unknown" };
   const sc = structured;
-  if (isRec(sc.error)) return { kind: "error", code: str(sc.error.code), message: str(sc.error.message), actions: cardActions(sc) };
+  if (isRec(sc.error)) {
+    const code = str(sc.error.code);
+    return { kind: "error", code, sentence: ERROR_SENTENCE[code] ?? UNKNOWN_ERROR, message: str(sc.error.message), actions: cardActions(sc) };
+  }
   if (sc.view === "paypal_checkout" && sc.reality === "paypal_sandbox" && sc.state === "awaiting-payment" && typeof sc.paypalOrderId === "string" && sc.paypalOrderId && typeof sc.approveUrl === "string" && "chargeId" in sc) {
-    return { kind: "paypal_checkout", ...paymentView(sc), paypalOrderId: sc.paypalOrderId, displayAmount: str(sc.display_amount) };
+    return { kind: "paypal_checkout", ...paymentView(sc), paypalOrderId: sc.paypalOrderId };
   }
   if (typeof sc.approveUrl === "string" && "chargeId" in sc) return { kind: "payment", ...paymentView(sc) };
   // A repeat order call on an order with nothing left to pay reads like an unpaid check, without a link.

@@ -125,6 +125,8 @@ Hosts that support MCP Apps (Claude, ChatGPT, VS Code and others) also render a 
 | `plan_reminders` | Demo reminder plan, nothing set yet | Add to my calendar (asks the chat; the card never touches a calendar) |
 | `record_reminder_results` | What the calendar tool reported, per reminder | See reminder plan if any failed, otherwise none |
 
+The in-card PayPal button needs a host whose card document has a real `location.origin`. In a `srcdoc` document it is `null`, so the PayPal SDK can never finish starting; the card goes straight to Open PayPal for the same order. Results by embedding are in `docs/ACCEPTANCE_RESULT_20261105.md`.
+
 Buttons go through the host (`tools/call`, `ui/open-link`) and the server checks every input as it does for the model, so the card adds no new way in. The card is built from `ui/` into `src/ui/cardHtml.generated.ts` (inline CSS and JS only; the default MCP Apps CSP allows nothing else): run `npm run build:ui` after editing `ui/`; a test fails if the generated file is stale. To view cards locally, run `npx @modelcontextprotocol/inspector@latest`, add the Streamable HTTP server `http://localhost:8788/mcp` with header `Authorization: Bearer <token>`, connect and open **Apps**.
 
 ## Run locally

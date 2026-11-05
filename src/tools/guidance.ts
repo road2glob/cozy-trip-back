@@ -83,8 +83,8 @@ export const nextStep = {
     args: { trip_id: tripId },
     needs_confirmation: false,
   }),
-  removeStaleReminder: (tripId: string): NextStep => ({
-    when: "a CozyTrip Demo reminder in the person's calendar no longer applies and should be removed",
+  fixStaleReminder: (tripId: string): NextStep => ({
+    when: "a CozyTrip Demo reminder in the person's calendar no longer matches the trip and should be updated or removed",
     tool: "plan_reminders",
     args: { trip_id: tripId },
     needs_confirmation: false,
@@ -252,15 +252,22 @@ export function sharesGuidance(tripId: string, shares: ShareFact[], staleReminde
     return { fact: "No share payments exist yet.", next_steps: [nextStep.quoteSplit(tripId, "Review the split")], end: null };
   }
   const fact = `${sharesFact(shares)} Maya owes USD 0.00.`;
+  const fix = staleReminder ? [nextStep.fixStaleReminder(tripId)] : [];
   if (shares.some((s) => s.prompt)) {
     return {
-      fact: `${fact} The requests are ready, and CozyTrip sends nothing to anyone: the person can share the links themselves.`,
-      next_steps: [nextStep.checkShares(tripId)],
+      fact: `${fact} The requests are ready, and CozyTrip sends nothing to anyone: the person can share the links themselves. A share counts as paid only when this check says so.`,
+      next_steps: [nextStep.checkShares(tripId), ...fix],
       end: null,
     };
   }
-  const done = "No share is waiting for payment, so no payment entry remains.";
-  return staleReminder ? { fact: `${fact} ${done}`, next_steps: [nextStep.removeStaleReminder(tripId)], end: null } : { fact, next_steps: [], end: done };
+  if (shares.some((s) => s.state === "creating")) {
+    return { fact: `${fact} A request did not finish being created. Confirming the split again completes it without making a second one.`, next_steps: [nextStep.quoteSplit(tripId, "Review the split"), ...fix], end: null };
+  }
+  const closed = shares.filter((s) => s.state !== "captured").map((s) => s.name ?? "Member");
+  const done = closed.length
+    ? `${closed.join(" and ")}: this request closed without a verified payment and cannot be reopened here. Nothing else is waiting for payment.`
+    : "No share is waiting for payment, so no payment entry remains.";
+  return fix.length ? { fact: `${fact} ${done}`, next_steps: fix, end: null } : { fact, next_steps: [], end: done };
 }
 
 export interface RunFact {
@@ -301,6 +308,10 @@ function runPosition(tripId: string, run: RunFact, trackingState: string | null)
           fact: "Payment verified. Three drafts are ready. Draft. Not sent.",
           steps: [nextStep.viewDrafts(tripId, run.runId), ...(report ? [report] : [])],
         };
+      }
+      // No receipt yet says nothing about the outcome, and this order must not be quoted again.
+      if (!run.chargeOutcome) {
+        return { fact: "CozyTrip is still checking the original after-sales order. No new payment is needed.", steps: [nextStep.checkFee(tripId, run.runId, "Check again")] };
       }
       break;
   }

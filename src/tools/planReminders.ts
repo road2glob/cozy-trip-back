@@ -61,8 +61,9 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
   if (changed && args.confirmation_code) return fail("invalid_confirmation_code", "Confirm the plan with no other changes. Nothing was recorded; show the current plan again.");
 
   const [events, facts] = await Promise.all([readEvents(env.DB, userId, args.trip_id), reminderFacts(env.DB, userId, args.trip_id)]);
-  const plan = buildPlan(d, Date.now(), settings, facts);
-  const writes = writesFor(plan, events);
+  const now = Date.now();
+  const plan = buildPlan(d, now, settings, facts);
+  const writes = writesFor(plan, events, now);
   // Bound to exactly what the person saw, so a plan that changes afterwards needs a new agreement.
   const target = JSON.stringify([settings.calendar_name, writes.map((w) => (w.op === "remove" ? [w.op, w.key] : [w.op, w.key, w.title, w.start_utc]))]);
   const writeKeys = new Set(writes.map((w) => w.key));
@@ -139,6 +140,13 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
 
   const code = await localCode(ctx, "reminders", args.trip_id, target);
   const writtenCount = events.filter((e) => e.state === "written").length;
+  const ops = new Set(writes.map((w) => w.op));
+  const ask =
+    ops.size === 1 && ops.has("create")
+      ? { card_action: "Add to my calendar", card_message: "I agree to this CozyTrip demo reminder plan. Please add it to my calendar." }
+      : ops.size === 1 && ops.has("remove")
+        ? { card_action: "Remove from my calendar", card_message: "I agree to remove this CozyTrip demo reminder from my calendar." }
+        : { card_action: "Update my calendar", card_message: "I agree to this CozyTrip demo reminder plan. Please update my calendar to match it." };
   const toSet = writes.filter((w) => w.op !== "remove").length;
   return guided(
     planLines.join("\n"),
@@ -154,8 +162,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
           tool: name,
           args: { trip_id: args.trip_id, confirmation_code: code },
           needs_confirmation: true,
-          card_action: "Add to my calendar",
-          card_message: "I agree to this CozyTrip demo reminder plan. Please add it to my calendar.",
+          ...ask,
         },
         nextStep.adjustReminders(args.trip_id),
       ],

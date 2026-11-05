@@ -5,6 +5,7 @@ import { localCode, validCode, operation } from "../domain/operations";
 import { createRun, submitOutput, getReceipt } from "../paymentService";
 import { fail, type ToolContext } from "./common";
 import { guided, nextStep } from "./guidance";
+import { hasStaleReminder } from "../domain/reminders";
 import type { TripDetail } from "../domain/trips";
 
 interface ImpactEntry {
@@ -24,14 +25,14 @@ const withTitles = (d: TripDetail, impacts: ImpactEntry[]) =>
 const impactLines = (impacts: ReturnType<typeof withTitles>) =>
   impacts.map((i) => `- ${i.title}: ${STATUS_WORD[i.status] ?? i.status} (${i.provenance}). ${i.evidence}`);
 
-function confirmedResult(d: TripDetail, tripId: string, issueId: string, runId: string, result: Record<string, unknown> & { impacts: ImpactEntry[] }, replay: boolean) {
+function confirmedResult(d: TripDetail, tripId: string, issueId: string, runId: string, result: Record<string, unknown> & { impacts: ImpactEntry[] }, replay: boolean, staleReminder: boolean) {
   const impacts = withTitles(d, result.impacts);
   return guided(
     ["Simulated impact confirmed. No airline was contacted and no booking was cancelled with a merchant.", ...impactLines(impacts)].join("\n"),
     { trip_id: tripId, issue_id: issueId, runId, ...result, impacts, ...(replay ? { replay: true } : {}) },
     {
       fact: "A simulated cancellation is recorded. No airline was contacted, and nothing has been bought.",
-      next_steps: [nextStep.options(tripId), nextStep.quoteDrafts(tripId)],
+      next_steps: [nextStep.options(tripId), nextStep.quoteDrafts(tripId), ...(staleReminder ? [nextStep.fixStaleReminder(tripId)] : [])],
       end: null,
     },
   );
@@ -59,7 +60,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
     .bind(args.trip_id, ctx.userId)
     .first<{ run_id: string; result_json: string }>();
   if (existing)
-    return confirmedResult(d, args.trip_id, target, existing.run_id, JSON.parse(existing.result_json), true);
+    return confirmedResult(d, args.trip_id, target, existing.run_id, JSON.parse(existing.result_json), true, await hasStaleReminder(d, ctx.env.DB, ctx.userId));
   const impacts = impactPreview(d);
   if (!args.confirmation_code) {
     const code = await localCode(ctx, "impact", args.trip_id, target);
@@ -163,6 +164,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         new Date().toISOString(),
       ),
     ]);
-    return confirmedResult(d, args.trip_id, target, created.runId, result, false);
+    const after = await getTripDetail(ctx.env.DB, ctx.userId, args.trip_id);
+    return confirmedResult(d, args.trip_id, target, created.runId, result, false, after ? await hasStaleReminder(after, ctx.env.DB, ctx.userId) : false);
   });
 }

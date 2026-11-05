@@ -354,15 +354,42 @@ describe("recording what the calendar tool did", () => {
     expect(second.writes.every((w: any) => w.op === "create")).toBe(true);
   });
 
+  it("an outcome has to match the write that was agreed", async () => {
+    const { env, raw } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
+    const r = await record.run(ctx, { trip_id, results: [{ key: keys[0], outcome: "removed" }, { key: keys[1], outcome: "updated", external_event_id: "evt_x" }] });
+    expect(sc(r).rejected.map((x: any) => x.reason)).toEqual(["outcome_does_not_match_write", "outcome_does_not_match_write"]);
+    expect(events(raw)).toEqual([]);
+  });
+
+  it("a recorded receipt is never lost: a later failure or a second ID leaves it in place, and the agent is told about the duplicate", async () => {
+    const { env, raw } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
+    await record.run(ctx, { trip_id, results: [created(keys[0], "evt_first")] });
+
+    await record.run(ctx, { trip_id, results: [{ key: keys[0], outcome: "failed", detail: "Timed out on retry" }] });
+    expect(events(raw).find((e) => e.reminder_key === keys[0])).toMatchObject({ state: "written", external_event_id: "evt_first" });
+
+    const second = await record.run(ctx, { trip_id, results: [created(keys[0], "evt_second")] });
+    expect(sc(second).rejected).toEqual([{ key: keys[0], reason: "already_recorded", external_event_id: "evt_first" }]);
+    expect(text(second)).toContain("If your calendar tool just made another entry, remove that one.");
+    expect(events(raw).find((e) => e.reminder_key === keys[0])).toMatchObject({ external_event_id: "evt_first" });
+
+    expect(sc(await record.run(ctx, { trip_id, results: [created(keys[0], "evt_first")] })).rejected).toEqual([]);
+  });
+
   it("a retry updates, never duplicates: one row per reminder, and an unchanged entry is left alone", async () => {
     const { env, raw } = testEnv();
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
     const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
     await record.run(ctx, { trip_id, results: keys.map((k: string) => created(k)) });
-    await record.run(ctx, { trip_id, results: [created(keys[0], "evt_retry")] });
+    await record.run(ctx, { trip_id, results: keys.map((k: string) => created(k)) });
     expect(events(raw)).toHaveLength(4);
-    expect(events(raw).find((e) => e.reminder_key === keys[0]).external_event_id).toBe("evt_retry");
 
     const nothing = await plan.run(ctx, { trip_id });
     expect(sc(nothing).reminders.every((i: any) => i.state === "written")).toBe(true);
@@ -502,6 +529,10 @@ describe("reminders stop when the reason is gone", () => {
     const c = sc(await updateCase.run(ctx, { trip_id, run_id: q.runId, status: "merchant_responded", note: "They replied" }));
     const done = sc(await updateCase.run(ctx, c.guidance.next_steps[0].args));
     expect(done.guidance.next_steps).toEqual([expect.objectContaining({ tool: "plan_reminders" })]);
+    // A retried report, after a lost response, still raises it.
+    const retried = sc(await updateCase.run(ctx, { trip_id, run_id: q.runId, status: "merchant_responded", note: "They replied" }));
+    expect(retried.replay).toBe(true);
+    expect(retried.guidance.next_steps).toEqual([expect.objectContaining({ tool: "plan_reminders" })]);
     expect(sc(await plan.run(ctx, { trip_id })).removals.map((r: any) => r.key)).toEqual(["follow-up"]);
   });
 
@@ -515,6 +546,73 @@ describe("reminders stop when the reason is gone", () => {
     const later = sc(await plan.run(ctx, { trip_id }));
     expect(later.removals).toEqual([]);
     expect(later.writes).toEqual([]);
+  });
+});
+
+describe("reminders follow the trip", () => {
+  it("a recorded cancellation drops reminders for the affected bookings and raises what is already in the calendar", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const first = sc(await agreed(ctx, trip_id));
+    await record.run(ctx, { trip_id, results: first.writes.map((w: any) => created(w.key)) });
+
+    const preview = sc(await detect.run(ctx, { trip_id }));
+    const confirmed = sc(await detect.run(ctx, { trip_id, confirmation_code: preview.confirmation_code }));
+    expect(confirmed.guidance.next_steps.map((s: any) => s.tool)).toContain("plan_reminders");
+
+    const after = sc(await plan.run(ctx, { trip_id }));
+    const whats = after.reminders.map((i: any) => i.what).join(" | ");
+    expect(whats).not.toContain("Sample Air 210");
+    expect(whats).not.toContain("Sample Transfer Co");
+    expect(whats).toContain("Sample Bay Hotel");
+    expect(whats).toContain("Sample Bay Cruise");
+    expect(after.notes).toContain("A simulated cancellation is recorded, so nothing is planned for the affected bookings.");
+    expect(after.removals.map((r: any) => r.key)).toContain("before-departure-3d");
+    expect(after.guidance.next_steps[0].card_action).toBe("Update my calendar");
+  });
+
+  it("a leave-home time moved into the past removes the entry still waiting to fire", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const p = sc(await plan.run(ctx, { trip_id, leave_home_at: "05:30" }));
+    const a = sc(await plan.run(ctx, { trip_id, confirmation_code: p.confirmation_code }));
+    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    setClock("2026-11-08T14:00:00Z"); // 06:00 on departure morning in Los Angeles
+    expect(sc(await plan.run(ctx, { trip_id })).removals).toEqual([]);
+    setClock("2026-11-08T12:00:00Z"); // 04:00: the 05:30 entry is still ahead
+    const moved = sc(await plan.run(ctx, { trip_id, leave_home_at: "03:00" }));
+    expect(moved.removals.map((r: any) => r.key)).toEqual(["leave-home"]);
+  });
+
+  it("when only a removal is left, the button and the message say removal", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const p = sc(await plan.run(ctx, { trip_id, leave_home_at: "05:30" }));
+    const a = sc(await plan.run(ctx, { trip_id, confirmation_code: p.confirmation_code }));
+    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    const r = sc(await plan.run(ctx, { trip_id, leave_home_at: null }));
+    expect(r.guidance.next_steps[0]).toMatchObject({ card_action: "Remove from my calendar" });
+    expect(r.guidance.next_steps[0].card_message).toContain("remove this CozyTrip demo reminder");
+    expect(r.guidance.fact).toContain("no longer applies");
+  });
+
+  it("a text that changes in the calendar is raised while shares are still unpaid", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const q = sc(await split.run(ctx, { trip_id }));
+    const [leo] = sc(await createSplit.run(ctx, { trip_id, confirmation_code: q.confirmation_code })).payments;
+    const a = sc(await agreed(ctx, trip_id));
+    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    const order = await getSettlement(env, leo.payment_id);
+    order.state = "captured";
+    order.paypalCaptureId = "FAKE";
+    await fixtureWrite(env.DB, "settlement:" + leo.payment_id, order);
+    const r = sc(await splitCheck.run(ctx, { trip_id }));
+    expect(r.guidance.next_steps.map((s: any) => s.tool)).toEqual(["split_status", "plan_reminders"]);
   });
 });
 

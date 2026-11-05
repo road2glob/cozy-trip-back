@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getTripDetail, importSampleTrip } from "../domain/trips";
 import { reminderTablesExist } from "../domain/reminders";
+import { listServiceOrders } from "../domain/serviceOrders";
 import { formatUsd } from "../domain/money";
 import { SIMULATED_NOTICE, fail, type ToolContext, type ToolResult } from "./common";
 import { guided, nextStep, withGuidance } from "./guidance";
@@ -57,7 +58,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
     currency: "USD",
     demo_event: d.demoEvent?.state ?? null,
     demo_event_id: d.demoEvent?.event_id ?? null,
-    run_count: 0,
+    run_count: (await listServiceOrders(ctx.env.DB, ctx.userId, tripId)).length,
   };
 
   // Shares are paid to the Team sandbox merchant, so this never says anyone owes Maya.
@@ -68,7 +69,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
     `Travelers: ${d.participants.map((p) => (p.role === "organizer" ? `${p.name} (organizer)` : p.name)).join(", ")}.`,
     ...d.bookings.map((b) => `- ${b.title}: ${formatUsd(b.amount_minor)}`),
     `Total ${formatUsd(d.totalMinor)}. Airport pickup prepaid by Maya: ${shares}.`,
-    "No issue has been simulated and no payment has started.",
+    created ? "No issue has been simulated and no payment has started." : "This trip may have moved on since it was imported, so its current position comes from get_status.",
     SIMULATED_NOTICE,
   ].join("\n");
   // A repeat import is someone coming back: the trip may have moved on, so read it instead of restarting.

@@ -58,16 +58,16 @@ interface Draft {
 
 export interface BuiltPlan {
   items: ReminderItem[];
-  /** Keys that fell in the past. An entry already written for one is left alone, not removed. */
-  pastKeys: string[];
   notes: string[];
 }
 
 /** Rules from section 6.4 of the product handoff. Pure, so every rule can be tested with a fixed clock. */
 export function buildPlan(d: TripDetail, now: number, settings: ReminderSettings, facts: ReminderFacts): BuiltPlan {
   const tz = d.trip.timezone;
-  const flight = d.bookings.find((b) => b.kind === "flight");
-  const departure = (flight?.local_start ?? d.trip.start_date).slice(0, 10);
+  // A booking the trip records as disrupted is not happening as booked, so nothing counts down to it.
+  const active = d.bookings.filter((b) => b.status !== "disrupted");
+  const flight = active.find((b) => b.kind === "flight");
+  const departure = (d.bookings.find((b) => b.kind === "flight")?.local_start ?? d.trip.start_date).slice(0, 10);
   const notify = settings.notify_time;
   const drafts: Draft[] = [];
 
@@ -77,7 +77,7 @@ export function buildPlan(d: TripDetail, now: number, settings: ReminderSettings
 
   // The flight, and every booking, gets the day before. Bookings on the same day share one reminder.
   const byDay = new Map<string, string[]>();
-  for (const b of d.bookings) {
+  for (const b of active) {
     const day = b.local_start.slice(0, 10);
     byDay.set(day, [...(byDay.get(day) ?? []), b.title]);
   }
@@ -87,7 +87,7 @@ export function buildPlan(d: TripDetail, now: number, settings: ReminderSettings
 
   // Hour-level countdowns need an exact time, so a date-only booking never gets one. The flight has the
   // leave-home reminder instead, at a time only the person can choose.
-  for (const b of d.bookings) {
+  for (const b of active) {
     if (b.kind === "flight" || !b.local_start.includes("T")) continue;
     const at = localToUtc(b.local_start, tz) - TWO_HOURS_MS;
     drafts.push({ key: `two-hours:${b.booking_id}`, what: `${b.title} in 2 hours`, lead: "2 hours before", local: utcToLocal(at, tz) });
@@ -146,13 +146,14 @@ export function buildPlan(d: TripDetail, now: number, settings: ReminderSettings
   });
 
   const notes = ["The sample has no refund or change deadline, so no deadline reminder is planned."];
-  if (!settings.leave_home_at) notes.push("No leave-home reminder until you choose a time.");
+  if (active.length < d.bookings.length) notes.push("A simulated cancellation is recorded, so nothing is planned for the affected bookings.");
+  else if (!settings.leave_home_at) notes.push("No leave-home reminder until you choose a time.");
   if (facts.unpaidShares.length > 0 && items.some((i) => i.what.includes("Pickup shares"))) {
     notes.push("The unpaid-shares reminder goes only to your own calendar, never to Leo or Ava, and stops once they are paid.");
   }
   if (past.length > 0) notes.push(`${past.length} ${past.length === 1 ? "reminder is" : "reminders are"} already in the past and skipped.`);
 
-  return { items, pastKeys: past.map((x) => x.key), notes };
+  return { items, notes };
 }
 
 // ---- what was written -----------------------------------------------------------------------
@@ -176,7 +177,7 @@ export type ReminderWrite =
   | { op: "remove"; key: string; title: string; external_event_id: string };
 
 /** Only touches entries CozyTrip's own plan created: every update and removal names a recorded receipt. */
-export function writesFor(plan: BuiltPlan, events: ReminderEventRow[]): ReminderWrite[] {
+export function writesFor(plan: BuiltPlan, events: ReminderEventRow[], now: number): ReminderWrite[] {
   const byKey = new Map(events.map((e) => [e.reminder_key, e]));
   const writes: ReminderWrite[] = [];
   for (const item of plan.items) {
@@ -188,8 +189,10 @@ export function writesFor(plan: BuiltPlan, events: ReminderEventRow[]): Reminder
     }
   }
   const current = new Set(plan.items.map((i) => i.key));
+  // An entry whose own time has gone by has done its job and stays. One still ahead would fire for nothing.
+  const stillAhead = (e: ReminderEventRow) => Date.parse(String((JSON.parse(e.content_key ?? "[]") as unknown[])[1])) > now;
   for (const e of events) {
-    if (e.state !== "written" || !e.external_event_id || current.has(e.reminder_key) || plan.pastKeys.includes(e.reminder_key)) continue;
+    if (e.state !== "written" || !e.external_event_id || current.has(e.reminder_key) || !stillAhead(e)) continue;
     writes.push({ op: "remove", key: e.reminder_key, title: e.title, external_event_id: e.external_event_id });
   }
   return writes;
@@ -244,7 +247,7 @@ export async function reminderFacts(db: D1Database, userId: string, tripId: stri
   return { unpaidShares: shares.results.map((s) => s.name), caseState: progress?.state ?? null };
 }
 
-/** True when something CozyTrip wrote no longer belongs, for example once a share is paid */
+/** True when something CozyTrip wrote no longer matches the trip, for example once a share is paid */
 export async function hasStaleReminder(d: TripDetail, db: D1Database, userId: string, now = Date.now()): Promise<boolean> {
   if (!(await reminderTablesExist(db))) return false;
   const [settings, events, facts] = await Promise.all([
@@ -252,7 +255,7 @@ export async function hasStaleReminder(d: TripDetail, db: D1Database, userId: st
     readEvents(db, userId, d.trip.trip_id),
     reminderFacts(db, userId, d.trip.trip_id),
   ]);
-  return writesFor(buildPlan(d, now, settings, facts), events).some((w) => w.op === "remove");
+  return writesFor(buildPlan(d, now, settings, facts), events, now).some((w) => w.op !== "create");
 }
 
 export interface ReminderSummary {

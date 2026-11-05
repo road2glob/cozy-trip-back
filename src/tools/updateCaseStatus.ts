@@ -15,7 +15,7 @@ const CASE_LABEL: Record<string, string> = {
 
 function recordedGuidance(tripId: string, runId: string, state: string, staleReminder = false): Guidance {
   const report = reportCaseStep(tripId, runId, state);
-  const steps = [...(report ? [report] : []), ...(staleReminder ? [nextStep.removeStaleReminder(tripId)] : [])];
+  const steps = [...(report ? [report] : []), ...(staleReminder ? [nextStep.fixStaleReminder(tripId)] : [])];
   return {
     fact: `Recorded from the person's own report: "${CASE_LABEL[state] ?? state}". This covers the whole service order. CozyTrip contacted no one.`,
     next_steps: steps,
@@ -95,7 +95,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         provenance: "user-reported",
         replay: true,
       },
-      recordedGuidance(args.trip_id, args.run_id, row.state),
+      recordedGuidance(args.trip_id, args.run_id, row.state, await staleAfter(ctx, args.trip_id)),
     );
   if (next[row.state] !== args.status)
     return fail(

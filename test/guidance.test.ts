@@ -143,6 +143,17 @@ describe("empty ledger and first import", () => {
     expect(buttons(r)).toEqual(["See reminder plan"]);
   });
 
+  it("a repeat import never says nothing has happened on a trip that has moved on", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const { trip_id } = await ordered(ctx);
+    const again = await imports.run(ctx, { mode: "sample" });
+    expect(sc(again).trip_id).toBe(trip_id);
+    expect(text(again)).not.toContain("no payment has started");
+    expect(sc(again).run_count).toBe(1);
+    expect(sc(again).demo_event).toBe("fired");
+  });
+
   it("a repeat import resumes the existing trip instead of restarting", async () => {
     const { env } = testEnv();
     const ctx = toolCtx(env);
@@ -176,6 +187,17 @@ describe("resuming from get_status", () => {
     expect(sc(r).guidance.next_steps[0]).toMatchObject({ tool: "verify_payment", args: { trip_id, run_id }, card_action: "Check again" });
     expect(tools(r)).not.toContain("update_case_status");
     expect(JSON.stringify(r)).not.toContain("update_case_status");
+  });
+
+  it("a verified run with no receipt yet is still being checked, and is never offered a new quote", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const { trip_id, run_id } = await ordered(ctx);
+    await setRun(ctx, run_id, "verified");
+    const r = await status.run(ctx, { trip_id });
+    expect(sc(r).guidance.fact).toContain("still checking the original after-sales order");
+    expect(tools(r)).toContain("verify_payment");
+    expect(tools(r)).not.toContain("quote_service");
   });
 
   it("a delivered order offers the drafts and only a chat-side report step", async () => {
@@ -414,6 +436,47 @@ describe("split", () => {
 
     const requote = await split.run(ctx, { trip_id });
     expect(tools(requote)).toEqual(["split_status"]);
+  });
+
+  it("a create that failed partway reads as unfinished: no crash, and confirming again completes the same request", async () => {
+    const { env, raw } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const q = sc(await split.run(ctx, { trip_id }));
+    // Both rows stuck: as many rows as shares, and still none of them is a finished request.
+    for (const name of ["Leo", "Ava"]) {
+      const member = (raw.prepare("SELECT participant_id FROM participants WHERE name=?").get(name) as any).participant_id;
+      raw.prepare("INSERT INTO payments(payment_id,reference_id,trip_id,participant_id,amount_minor,currency,state,created_at,updated_at,user_id) VALUES(?,?,?,?,6000,'USD','creating','2026-11-01','2026-11-01',?)").run(`pay_stuck_${name}`, `settlement:pay_stuck_${name}`, trip_id, member, ctx.userId);
+    }
+
+    const check = await splitCheck.run(ctx, { trip_id });
+    expect(check.isError).toBeUndefined();
+    expect(sc(check).guidance.fact).toContain("did not finish being created");
+    expect(tools(check)).toEqual(["quote_split"]);
+    expect((await status.run(ctx, { trip_id })).isError).toBeUndefined();
+
+    const again = await split.run(ctx, { trip_id });
+    expect(tools(again)).toEqual(["create_split_payments"]);
+    const done = await createSplit.run(ctx, sc(again).guidance.next_steps[0].args);
+    expect(sc(done).payments.map((p: any) => p.payment_id)).toEqual(["pay_stuck_Leo", "pay_stuck_Ava"]);
+    expect(sc(done).payments.every((p: any) => p.state === "awaiting-payment")).toBe(true);
+    expect((raw.prepare("SELECT count(*) AS n FROM payments").get() as any).n).toBe(2);
+    expect(q.confirmation_code).toBeTruthy();
+  });
+
+  it.each(["failed", "void"])("a %s share is not reported as if everything were paid", async (state) => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const q = sc(await split.run(ctx, { trip_id }));
+    const [leo, ava] = sc(await createSplit.run(ctx, { trip_id, confirmation_code: q.confirmation_code })).payments;
+    await capture(ctx, leo.payment_id);
+    const order = await getSettlement(env, ava.payment_id);
+    order.state = state as never;
+    await fixtureWrite(env.DB, "settlement:" + ava.payment_id, order);
+    const r = await splitCheck.run(ctx, { trip_id });
+    expect(sc(r).guidance.end).toContain("Ava: this request closed without a verified payment");
+    expect(sc(r).guidance.end).not.toContain("no payment entry remains");
   });
 
   it("checking before any split offers the free quote and creates nothing", async () => {

@@ -353,6 +353,12 @@ describe("status", () => {
     expect(details.querySelector(".steps")).not.toBeNull();
   });
 
+  it("a verified run with no receipt yet says it is being checked", () => {
+    render(root, cardFor({ trips: [], runs: [{ runId: "run_x", state: "verified", steps: [] }], split_payments: [] }), actions, ui());
+    expect(root.textContent).toContain("Checking the order.");
+    expect(root.textContent).not.toContain("Closed without drafts.");
+  });
+
   it("refund-required is never shown as refunded", () => {
     const view = cardFor({ trips: [], runs: [{ runId: "run_x", state: "verified", steps: [], chargeOutcome: "refund-required" }], split_payments: [] });
     render(root, view, actions, ui());

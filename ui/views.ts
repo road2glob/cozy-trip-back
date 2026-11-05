@@ -124,6 +124,7 @@ function stepState(s: string): StepView["state"] {
 
 function runSentence(state: string, chargeOutcome: string | null): string {
   if (chargeOutcome === "refund-required") return "Refund required. This is not a completed refund.";
+  if (state === "verified" && chargeOutcome === null) return "Checking the order.";
   if (state === "verified" && chargeOutcome !== "captured") return "Closed without drafts.";
   return RUN_SENTENCE[state] ?? state;
 }

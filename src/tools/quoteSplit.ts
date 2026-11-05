@@ -126,7 +126,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
     });
     const code = await localCode(ctx, "split", args.trip_id, q.run_id);
     const existing = await ctx.env.DB.prepare(
-      "SELECT count(*) AS n FROM payments WHERE trip_id=?1 AND user_id=?2",
+      "SELECT count(*) AS n FROM payments WHERE trip_id=?1 AND user_id=?2 AND state<>'creating'",
     )
       .bind(args.trip_id, ctx.userId)
       .first<{ n: number }>();
@@ -147,7 +147,8 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         demo_notice: DEMO_NOTICE,
         payee_notice: PAYEE_NOTICE,
       },
-      existing?.n
+      // Only finished requests count: after a failed create, confirming again is the way to complete them.
+      existing && existing.n >= d.balances.length
         ? {
             fact: `${summary} The share requests already exist, so nothing new is created.`,
             next_steps: [nextStep.checkShares(args.trip_id, "See shares")],

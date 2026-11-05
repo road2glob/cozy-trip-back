@@ -3,7 +3,40 @@ import { getTripDetail } from "../domain/trips";
 import { impactPreview } from "../domain/impact";
 import { localCode, validCode, operation } from "../domain/operations";
 import { createRun, submitOutput, getReceipt } from "../paymentService";
-import { fail, ok, type ToolContext } from "./common";
+import { fail, type ToolContext } from "./common";
+import { guided, nextStep } from "./guidance";
+import type { TripDetail } from "../domain/trips";
+
+interface ImpactEntry {
+  bookingId: string;
+  status: string;
+  rule: string;
+  provenance: string;
+  evidence: string;
+}
+
+const STATUS_WORD: Record<string, string> = { disrupted: "disrupted", at_risk: "at risk", unaffected: "unaffected" };
+
+/** Older stored assessments have no titles, so they are added on the way out instead of when saving */
+const withTitles = (d: TripDetail, impacts: ImpactEntry[]) =>
+  impacts.map((i) => ({ ...i, title: d.bookings.find((b) => b.booking_id === i.bookingId)?.title ?? "Booking" }));
+
+const impactLines = (impacts: ReturnType<typeof withTitles>) =>
+  impacts.map((i) => `- ${i.title}: ${STATUS_WORD[i.status] ?? i.status} (${i.provenance}). ${i.evidence}`);
+
+function confirmedResult(d: TripDetail, tripId: string, issueId: string, runId: string, result: Record<string, unknown> & { impacts: ImpactEntry[] }, replay: boolean) {
+  const impacts = withTitles(d, result.impacts);
+  return guided(
+    ["Simulated impact confirmed. No airline was contacted and no booking was cancelled with a merchant.", ...impactLines(impacts)].join("\n"),
+    { trip_id: tripId, issue_id: issueId, runId, ...result, impacts, ...(replay ? { replay: true } : {}) },
+    {
+      fact: "A simulated cancellation is recorded. No airline was contacted, and nothing has been bought.",
+      next_steps: [nextStep.options(tripId), nextStep.quoteDrafts(tripId)],
+      end: null,
+    },
+  );
+}
+
 export const name = "detect_impact";
 export const description =
   "Preview a fictional flight-cancellation impact without changing anything. Only a returned local confirmation_code confirms the simulation and opens a zero-price assessment.";
@@ -26,29 +59,28 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
     .bind(args.trip_id, ctx.userId)
     .first<{ run_id: string; result_json: string }>();
   if (existing)
-    return ok(
-      "Confirmed simulated impact assessment. No airline was contacted.",
-      {
-        trip_id: args.trip_id,
-        issue_id: target,
-        runId: existing.run_id,
-        ...JSON.parse(existing.result_json),
-        replay: true,
-      },
-    );
+    return confirmedResult(d, args.trip_id, target, existing.run_id, JSON.parse(existing.result_json), true);
   const impacts = impactPreview(d);
-  if (!args.confirmation_code)
-    return ok(
-      "Preview only: fictional outbound flight cancellation. Confirm this local code to simulate the event. Nothing has changed.",
+  if (!args.confirmation_code) {
+    const code = await localCode(ctx, "impact", args.trip_id, target);
+    const titled = withTitles(d, impacts);
+    return guided(
+      ["Preview only: fictional outbound flight cancellation. Nothing has changed.", ...impactLines(titled)].join("\n"),
       {
         trip_id: args.trip_id,
         preview: true,
         reality: "fictional_sample",
-        impacts,
-        confirmation_code: await localCode(ctx, "impact", args.trip_id, target),
+        impacts: titled,
+        confirmation_code: code,
         codeKind: "local",
       },
+      {
+        fact: "This is a preview of a fictional cancellation. Nothing has changed and it costs nothing.",
+        next_steps: [nextStep.confirmIssue(args.trip_id, code)],
+        end: null,
+      },
     );
+  }
   if (
     !(await validCode(
       ctx,
@@ -131,14 +163,6 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         new Date().toISOString(),
       ),
     ]);
-    return ok(
-      "Simulated impact confirmed. No airline was contacted and no booking was cancelled with a merchant.",
-      {
-        trip_id: args.trip_id,
-        issue_id: target,
-        runId: created.runId,
-        ...result,
-      },
-    );
+    return confirmedResult(d, args.trip_id, target, created.runId, result, false);
   });
 }

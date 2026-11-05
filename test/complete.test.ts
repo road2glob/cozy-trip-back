@@ -428,7 +428,7 @@ describe("AA split merchant settlements", () => {
         }),
       );
     expect(a.payments.map((p: any) => p.name)).toEqual(["Leo", "Ava"]);
-    expect(a.organizer).toEqual({ name: "Maya", due_minor: 0, prompt: false });
+    expect(a.organizer).toMatchObject({ name: "Maya", due_minor: 0, prompt: false });
     expect(b.payments.map((p: any) => p.payment_id)).toEqual(
       a.payments.map((p: any) => p.payment_id),
     );

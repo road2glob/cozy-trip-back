@@ -2,7 +2,24 @@ import { z } from "zod";
 import { getReceipt } from "../paymentService";
 import { serviceOrderByRun } from "../domain/serviceOrders";
 import { localCode, validCode, operation } from "../domain/operations";
-import { fail, ok, type ToolContext } from "./common";
+import { fail, type ToolContext } from "./common";
+import { guided, reportCaseStep, type Guidance } from "./guidance";
+
+const CASE_LABEL: Record<string, string> = {
+  submitted_by_user: "Sent by me",
+  awaiting_merchant: "Waiting for the merchant",
+  merchant_responded: "Merchant replied",
+};
+
+function recordedGuidance(tripId: string, runId: string, state: string): Guidance {
+  const report = reportCaseStep(tripId, runId, state);
+  return {
+    fact: `Recorded from the person's own report: "${CASE_LABEL[state] ?? state}". This covers the whole service order. CozyTrip contacted no one.`,
+    next_steps: report ? [report] : [],
+    end: report ? null : "This follow-up record is complete. It is still the person's own report.",
+  };
+}
+
 export const name = "update_case_status";
 export const description =
   "Available only after paid verified drafts are delivered. Record user-reported follow-up. A local confirmation code is required to mark that the user personally sent materials; this never contacts a merchant.";
@@ -60,13 +77,17 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
       "Case tracking is unavailable before a passed + captured receipt.",
     );
   if (row.state === args.status)
-    return ok("The user-reported case status is already recorded.", {
-      trip_id: args.trip_id,
-      runId: args.run_id,
-      trackingState: row.state,
-      provenance: "user-reported",
-      replay: true,
-    });
+    return guided(
+      "The user-reported case status is already recorded.",
+      {
+        trip_id: args.trip_id,
+        runId: args.run_id,
+        trackingState: row.state,
+        provenance: "user-reported",
+        replay: true,
+      },
+      recordedGuidance(args.trip_id, args.run_id, row.state),
+    );
   if (next[row.state] !== args.status)
     return fail(
       "invalid_transition",
@@ -95,19 +116,44 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
     args.note ?? "",
     args.evidence ?? "",
   ]);
-  if (!args.confirmation_code)
-    return ok(
+  if (!args.confirmation_code) {
+    const code = await localCode(ctx, "case", args.trip_id, target);
+    return guided(
       "Preview only. Confirm that you personally performed or observed this step. CozyTrip will not send anything.",
       {
         trip_id: args.trip_id,
         runId: args.run_id,
         currentState: row.state,
         proposedState: args.status,
-        confirmation_code: await localCode(ctx, "case", args.trip_id, target),
+        confirmation_code: code,
         codeKind: "local",
         preview: true,
+        // The code is bound to these exact values, so the card and the agent must send them back unchanged.
+        ...(args.note ? { note: args.note } : {}),
+        ...(args.evidence ? { evidence: args.evidence } : {}),
+      },
+      {
+        fact: `Nothing is recorded yet. The proposed record is "${CASE_LABEL[args.status]}", for the whole service order rather than each draft.`,
+        next_steps: [
+          {
+            when: "the person confirms they did or saw this themselves",
+            tool: name,
+            args: {
+              trip_id: args.trip_id,
+              run_id: args.run_id,
+              status: args.status,
+              confirmation_code: code,
+              ...(args.note ? { note: args.note } : {}),
+              ...(args.evidence ? { evidence: args.evidence } : {}),
+            },
+            needs_confirmation: true,
+            card_action: "Confirm my report",
+          },
+        ],
+        end: null,
       },
     );
+  }
   if (
     !(await validCode(
       ctx,
@@ -143,7 +189,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         "state_changed",
         "The case changed while confirming; read its current status again.",
       );
-    return ok(
+    return guided(
       "User-reported status recorded. No merchant action was performed by CozyTrip.",
       {
         trip_id: args.trip_id,
@@ -153,6 +199,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         report: args.note ?? null,
         evidence: args.evidence ?? null,
       },
+      recordedGuidance(args.trip_id, args.run_id, args.status),
     );
   });
 }

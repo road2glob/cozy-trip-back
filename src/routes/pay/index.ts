@@ -51,16 +51,17 @@ payRoutes.get("/cancel", async (c) => {
   const forced = stubScenario(c);
   if (forced) return render(forced);
 
+  // "Nothing was charged" needs the service's word for it. Landing here, or a failed check, proves nothing.
   const body = confirmBody(c);
-  if (body) {
-    try {
-      const result = await confirmCancel(c.env, body);
-      const state='charge' in result?result.charge.state:result.state;
-      if(state==='captured'||state==='refund-required')return render('returned');
-      logEvent({ event: "pay_cancel", chargeId: "charge" in result ? result.charge.chargeId : undefined, outcome: "confirmed" });
-    } catch (e) {
-      logEvent({ event: "pay_cancel", outcome: "confirm_failed", http_status: (e as { status?: number }).status });
-    }
+  if (!body) return render("unconfirmed");
+  try {
+    const result = await confirmCancel(c.env, body);
+    const state='charge' in result?result.charge.state:result.state;
+    if(state==='captured'||state==='refund-required')return render('returned');
+    logEvent({ event: "pay_cancel", chargeId: "charge" in result ? result.charge.chargeId : undefined, outcome: "confirmed" });
+    return render("cancelled");
+  } catch (e) {
+    logEvent({ event: "pay_cancel", outcome: "confirm_failed", http_status: (e as { status?: number }).status });
+    return render("unconfirmed");
   }
-  return render("cancelled");
 });

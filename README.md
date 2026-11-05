@@ -71,6 +71,28 @@ PayPal transactions, once approved and captured, are real **Sandbox** transactio
 
 `update_case_status` appears for a user only after a paid verified delivery. Calling it earlier returns `delivery_required`. No orders means only the import entry; no confirmed issue means no service-purchase code; no quote/confirmation means no pay URL; zero-due and captured members have no payment entry.
 
+### Agent guidance
+
+The `initialize` result carries the product's rules as server instructions (`src/mcp/instructions.ts`). Every tool result then adds a `guidance` field, repeated in its text for hosts that only pass text to the model:
+
+```json
+{
+  "fact": "Quoted at USD 9.90. Not paid, and no PayPal order exists until the person confirms.",
+  "next_steps": [
+    {
+      "when": "the person confirms USD 9.90 for the drafts",
+      "tool": "create_service_payment",
+      "args": { "trip_id": "…", "run_id": "…", "confirmation_code": "…" },
+      "needs_confirmation": true,
+      "card_action": "Confirm USD 9.90"
+    }
+  ],
+  "end": null
+}
+```
+
+`args` are reused as they are. `card_action` is present only on steps a card may offer as a button; steps without it stay in the conversation. `end` is set when no next step remains. Errors without their own guidance point to `get_status`, because an error alone does not prove what happened to an order.
+
 ## In-chat cards (MCP Apps)
 
 Hosts that support MCP Apps (Claude, ChatGPT, VS Code and others) also render a card next to these tools' results; other hosts show the text, which always carries the price, the code and the link. One page, `ui://cozytrip/card.html`, picks its view from the tool's `structuredContent`:

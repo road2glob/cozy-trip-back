@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { getTripDetail } from "../domain/trips";
-import { fail, ok, type ToolContext } from "./common";
+import { formatUsd } from "../domain/money";
+import { fail, type ToolContext } from "./common";
+import { guided, nextStep } from "./guidance";
 export const name = "reconcile_trip";
 export const description =
   "Reconcile source booking and expense totals in integer USD cents; never charge or change an order.";
@@ -28,16 +30,23 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
   )
     .bind(args.trip_id, ctx.userId)
     .run();
-  return ok(
-    "Four source bookings reconcile to USD 1,491.00. No airline or merchant was contacted.",
+  const total = formatUsd(d.totalMinor);
+  return guided(
+    `Four source bookings reconcile to ${total}. No airline or merchant was contacted.`,
     {
       trip_id: args.trip_id,
       total_minor: d.totalMinor,
+      display_total: total,
       expense_total_minor: e.total,
       currency: "USD",
       booking_count: d.bookings.length,
       provenance: "source",
       reconciled: true,
+    },
+    {
+      fact: `The orders are checked: ${d.bookings.length} bookings and their expenses both come to ${total}. No mismatch and no payment is needed.`,
+      next_steps: [nextStep.quoteSplit(args.trip_id), nextStep.previewIssue(args.trip_id)],
+      end: null,
     },
   );
 }

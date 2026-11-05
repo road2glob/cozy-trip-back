@@ -38,7 +38,7 @@ describe("return pages", () => {
   it("ignores scenario outside stub mode", async () => {
     const { env } = testEnv({ TASKPASS_TRANSPORT: "binding" });
     expect(sentencesIn((await page(env, "/pay/return?scenario=returned")).html)).toEqual(["unconfirmed"]);
-    expect(sentencesIn((await page(env, "/pay/cancel?scenario=returned")).html)).toEqual(["cancelled"]);
+    expect(sentencesIn((await page(env, "/pay/cancel?scenario=returned")).html)).toEqual(["unconfirmed"]);
   });
 
   it("a real stub return with the order still awaiting payment says capture is not confirmed", async () => {

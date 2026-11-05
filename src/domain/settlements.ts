@@ -1,5 +1,6 @@
 import type { ToolContext } from "../tools/common";
 import { getTripDetail } from "./trips";
+import { formatUsd } from "./money";
 import { getSettlement, reconcileSettlement } from "../paymentService";
 export interface PaymentRow {
   payment_id: string;
@@ -49,6 +50,7 @@ export async function splitStatus(
       participant_id: p.participant_id,
       name: participant?.name,
       amount_minor: p.amount_minor,
+      display_amount: formatUsd(p.amount_minor),
       currency: "USD",
       state: s.state,
       prompt: s.state === "awaiting-payment",

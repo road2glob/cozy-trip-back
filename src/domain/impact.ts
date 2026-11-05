@@ -10,8 +10,8 @@ export function impactPreview(d: TripDetail) {
         status: "disrupted",
         rule: "R-FLIGHT-DEMO",
         provenance: "simulated",
-        evidence:
-          "Explicitly confirmed fictional outbound flight cancellation; not a live airline feed.",
+        // Also shown in the preview, before anything is confirmed
+        evidence: "Fictional outbound flight cancellation; not a live airline feed.",
       };
     if (b.kind === "transfer" && b.linked_booking_id === flight?.booking_id)
       return {

@@ -14,6 +14,7 @@ import type { Env } from "../env";
 import type { AuthProps } from "../mcp/auth";
 import { logEvent } from "../log";
 import { fail, type ToolContext, type ToolResult } from "./common";
+import { ensureGuidance } from "./guidance";
 import * as getStatus from "./getStatus";
 import * as importOrders from "./importOrders";
 import * as quoteService from "./quoteService";
@@ -42,7 +43,7 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
     if (!ctx) return fail("unauthenticated", "No signed-in user for this request.");
     const base = { event: "tool_call", tool: tool.name, request_id: ctx.requestId, token_id: ctx.tokenId, user_id: ctx.userId };
     try {
-      const result = await tool.run(ctx, args);
+      const result = ensureGuidance(await tool.run(ctx, args));
       const sc = result.structuredContent;
       logEvent({
         ...base,
@@ -55,7 +56,8 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
     } catch (e) {
       logEvent({ ...base, outcome: "internal_error" });
       console.error(e instanceof Error ? e.message : "unknown error");
-      return fail("internal_error", "Unexpected error. Nothing was charged.");
+      // A crash here says nothing about money: an order may exist, so it never claims no charge.
+      return ensureGuidance(fail("internal_error", "Unexpected error. No verified result yet. Check the existing record before trying again."));
     }
   };
   const config = { description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations };

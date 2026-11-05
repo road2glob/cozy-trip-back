@@ -36,6 +36,11 @@ check("no header -> 401", (await rpc("initialize", init, null)).httpStatus === 4
 check("bad token -> 401", (await rpc("initialize", init, "Bearer not-a-real-token")).httpStatus === 401);
 const hello = await rpc("initialize", init);
 check("initialize with demo token", hello.httpStatus === 200 && hello.result?.serverInfo?.name === "cozytrip");
+check(
+  "initialize carries the product rules",
+  hello.result?.instructions?.startsWith("CozyTrip's default entry is organizing a trip") && hello.result.instructions.length <= 2048,
+  `${hello.result?.instructions?.length ?? 0} characters`,
+);
 
 const tools = (await rpc("tools/list", {})).result.tools;
 const names = tools.map((t) => t.name).sort();
@@ -68,6 +73,10 @@ check(
     !/seattle|paypal|usd|\$|split/i.test(text(empty)),
   text(empty),
 );
+check(
+  "empty ledger guidance offers only the sample import",
+  JSON.stringify(empty.structuredContent.guidance?.next_steps.map((s) => s.tool)) === '["import_orders"]',
+);
 
 const early = await call("quote_service", { trip_id: "trip_does_not_exist" });
 check("quote before import: no code, no link", early.isError === true && !JSON.stringify(early).includes("confirmation_code\""));
@@ -89,6 +98,10 @@ const quote = await call("quote_service", { trip_id: tripId });
 const q = quote.structuredContent;
 check("quote: 9.90 from price.amountMinor", q.price?.amountMinor === 990 && text(quote).includes("USD 9.90"));
 check("quote: confirmation_code (codeKind approval), no approveUrl, output null", !!q.confirmation_code && q.codeKind === "approval" && !("approveUrl" in q) && q.output === null);
+check(
+  "quote guidance: confirm step carries the code and needs agreement",
+  q.guidance?.next_steps[0]?.tool === "create_service_payment" && q.guidance.next_steps[0].needs_confirmation === true && q.guidance.next_steps[0].args.confirmation_code === q.confirmation_code,
+);
 
 const noCode = await call("create_service_payment", { trip_id: tripId, run_id: q.runId });
 check("pay without code: confirmation_required", noCode.structuredContent?.error?.code === "confirmation_required" && !JSON.stringify(noCode).includes("approveUrl"));

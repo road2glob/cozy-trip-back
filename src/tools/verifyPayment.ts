@@ -10,7 +10,47 @@ import {
   getReceipt,
   PaymentServiceError,
 } from "../paymentService";
-import { fail, ok, type ToolContext } from "./common";
+import { fail, type ToolContext } from "./common";
+import { NO_VERIFIED_CAPTURE, guided, nextStep, reportCaseStep, withGuidance, type Guidance } from "./guidance";
+
+const MATERIAL_TITLE: Record<string, string> = {
+  "airline-contact-points": "Airline contact points",
+  "hotel-change-request": "Hotel change request",
+  "transfer-and-cruise-change-request": "Transfer and cruise change request",
+};
+
+/** Titles are added on the way out, so the verified output itself stays exactly as it was submitted */
+function titledOutput(output: unknown) {
+  const o = output as Record<string, unknown> & { materials?: Array<{ kind: string; text: string }> };
+  return { ...o, materials: (o.materials ?? []).map((m) => ({ ...m, title: MATERIAL_TITLE[m.kind] ?? m.kind })) };
+}
+
+/** Captured-but-still-delivering must not look like unpaid: only an unpaid order leads back to PayPal */
+function pendingGuidance(tripId: string, runId: string, state: string, code: string | null): Guidance {
+  switch (state) {
+    case "awaiting-payment":
+      return {
+        fact: `${NO_VERIFIED_CAPTURE} No drafts are available until PayPal Sandbox shows the capture and it passes verification.`,
+        next_steps: [
+          nextStep.checkFee(tripId, runId, "Check again"),
+          ...(code ? [nextStep.continuePayment(tripId, runId, code, "Back to PayPal")] : []),
+        ],
+        end: null,
+      };
+    case "running":
+    case "verifying":
+      return {
+        fact: "CozyTrip is still checking this order. No new payment is needed and no drafts are available yet.",
+        next_steps: [nextStep.checkFee(tripId, runId, "Check again")],
+        end: null,
+      };
+    case "awaiting-approval":
+      return { fact: "This fee is quoted but not confirmed, so no order exists and nothing is paid.", next_steps: [nextStep.reviewQuote(tripId)], end: null };
+    default:
+      return { fact: "This run is closed without drafts. No order is in progress.", next_steps: [nextStep.quoteDrafts(tripId)], end: null };
+  }
+}
+
 export const name = "verify_payment";
 export const description =
   "Reconcile a Sandbox service payment and deliver drafts ONLY after a passed + captured receipt. Drafts are not sent. Repeated calls do not create another payment or submit a successful output again.";
@@ -97,7 +137,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
       receipt = await getReceipt(ctx.env, runId);
     } catch (e) {
       if (e instanceof PaymentServiceError && e.status === 409)
-        return ok(
+        return guided(
           "Payment or verification is still pending. No materials are available yet.",
           {
             trip_id: args.trip_id,
@@ -106,6 +146,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
             paid: false,
             output: null,
           },
+          pendingGuidance(args.trip_id, runId, r.state, so.confirmation_code),
         );
       throw e;
     }
@@ -114,14 +155,22 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
       receipt.chargeOutcome !== "captured" ||
       r.state !== "verified" ||
       !r.output
-    )
-      return fail(
+    ) {
+      const failed = fail(
         receipt.chargeOutcome === "refund-required"
           ? "refund_required"
           : "delivery_unavailable",
         "No verified materials can be delivered. A refund-required state is not a completed refund.",
         { runId, receipt, output: null },
       );
+      return receipt.chargeOutcome === "refund-required"
+        ? withGuidance(failed, {
+            fact: "This order did not pass verification, so no drafts are available. Refund-required is not a completed refund.",
+            next_steps: [],
+            end: "No new payment is needed. Do not say a refund happened.",
+          })
+        : failed;
+    }
     const drafted = await ctx.env.DB.prepare(
       "SELECT drafting_method FROM deliveries WHERE run_id=?1",
     )
@@ -146,18 +195,29 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
     )
       .bind(runId, ctx.userId)
       .first<{ state: string }>();
-    return ok(
-      "Payment verified and prepared drafts delivered. Draft. Not sent. Only you can send them to merchants.",
+    const output = titledOutput(r.output);
+    const trackingState = progress?.state ?? "prepared";
+    const report = reportCaseStep(args.trip_id, runId, trackingState);
+    return guided(
+      [
+        "Payment verified and prepared drafts delivered. Draft. Not sent. Only you can send them to merchants.",
+        ...output.materials.map((m) => `\n${m.title}\n${m.text}`),
+      ].join("\n"),
       {
         trip_id: args.trip_id,
         runId,
         state: r.state,
         paid: true,
-        output: r.output,
+        output,
         receipt,
-        trackingState: progress?.state ?? "prepared",
+        trackingState,
         draftingMethod: drafted?.drafting_method ?? "existing-verified-output",
         available_actions: ["update_case_status"],
+      },
+      {
+        fact: "Payment verified. Three drafts are ready. They are not sent, and only the person can send them.",
+        next_steps: report ? [report] : [],
+        end: report ? null : "The person's follow-up record is complete. No payment action remains.",
       },
     );
   });

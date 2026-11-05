@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { getTripDetail, importSampleTrip } from "../domain/trips";
 import { formatUsd } from "../domain/money";
-import { SIMULATED_NOTICE, fail, ok, type ToolContext, type ToolResult } from "./common";
+import { SIMULATED_NOTICE, fail, type ToolContext, type ToolResult } from "./common";
+import { guided, nextStep } from "./guidance";
 
 export const name = "import_orders";
 export const description =
@@ -60,8 +61,16 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
     `Travelers: ${d.participants.map((p) => (p.role === "organizer" ? `${p.name} (organizer)` : p.name)).join(", ")}.`,
     ...d.bookings.map((b) => `- ${b.title}: ${formatUsd(b.amount_minor)}`),
     `Total ${formatUsd(d.totalMinor)}. ${owes}.`,
-    `Demo flight cancellation is armed, not fired. No payment-service run was started.`,
+    "No issue has been simulated and no payment has started.",
     SIMULATED_NOTICE,
   ].join("\n");
-  return ok(text, structured);
+  // A repeat import is someone coming back: the trip may have moved on, so read it instead of restarting.
+  const guidance = created
+    ? {
+        fact: `The sample trip is organized: ${d.bookings.length} bookings, ${d.participants.length} travelers, ${formatUsd(d.totalMinor)}. Simulated travel data.`,
+        next_steps: [nextStep.previewIssue(tripId, "Preview a simulated issue"), nextStep.quoteSplit(tripId), nextStep.checkOrders(tripId)],
+        end: null,
+      }
+    : { fact: "This sample trip was already imported. Nothing was changed.", next_steps: [nextStep.resume(tripId)], end: null };
+  return guided(text, structured, guidance);
 }

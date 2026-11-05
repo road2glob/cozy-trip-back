@@ -172,20 +172,25 @@ export interface ReminderEventRow {
 export const contentKey = (item: Pick<ReminderItem, "title" | "start_utc">) => JSON.stringify([item.title, item.start_utc]);
 
 export type ReminderWrite =
-  | ({ op: "create" } & ReminderItem)
-  | ({ op: "update"; external_event_id: string } & ReminderItem)
-  | { op: "remove"; key: string; title: string; external_event_id: string };
+  | ({ op: "create"; calendar_name: string | null } & ReminderItem)
+  | ({ op: "update"; calendar_name: string | null; external_event_id: string } & ReminderItem)
+  | { op: "remove"; calendar_name: string | null; move_to?: string; key: string; title: string; external_event_id: string };
 
 /** Only touches entries CozyTrip's own plan created: every update and removal names a recorded receipt. */
-export function writesFor(plan: BuiltPlan, events: ReminderEventRow[], now: number): ReminderWrite[] {
+export function writesFor(plan: BuiltPlan, events: ReminderEventRow[], now: number, calendar: string | null): ReminderWrite[] {
   const byKey = new Map(events.map((e) => [e.reminder_key, e]));
   const writes: ReminderWrite[] = [];
   for (const item of plan.items) {
     const e = byKey.get(item.key);
     if (e?.state === "written" && e.external_event_id) {
-      if (e.content_key !== contentKey(item)) writes.push({ op: "update", external_event_id: e.external_event_id, ...item });
+      if (calendar && calendar !== e.calendar_name) {
+        // The host must acknowledge removal from the original calendar before we propose a new entry.
+        writes.push({ op: "remove", key: item.key, title: e.title, external_event_id: e.external_event_id, calendar_name: e.calendar_name, move_to: calendar });
+      } else if (e.content_key !== contentKey(item)) {
+        writes.push({ op: "update", external_event_id: e.external_event_id, calendar_name: e.calendar_name, ...item });
+      }
     } else {
-      writes.push({ op: "create", ...item });
+      writes.push({ op: "create", calendar_name: calendar, ...item });
     }
   }
   const current = new Set(plan.items.map((i) => i.key));
@@ -193,7 +198,7 @@ export function writesFor(plan: BuiltPlan, events: ReminderEventRow[], now: numb
   const stillAhead = (e: ReminderEventRow) => Date.parse(String((JSON.parse(e.content_key ?? "[]") as unknown[])[1])) > now;
   for (const e of events) {
     if (e.state !== "written" || !e.external_event_id || current.has(e.reminder_key) || !stillAhead(e)) continue;
-    writes.push({ op: "remove", key: e.reminder_key, title: e.title, external_event_id: e.external_event_id });
+    writes.push({ op: "remove", key: e.reminder_key, title: e.title, calendar_name: e.calendar_name, external_event_id: e.external_event_id });
   }
   return writes;
 }
@@ -255,7 +260,7 @@ export async function hasStaleReminder(d: TripDetail, db: D1Database, userId: st
     readEvents(db, userId, d.trip.trip_id),
     reminderFacts(db, userId, d.trip.trip_id),
   ]);
-  return writesFor(buildPlan(d, now, settings, facts), events, now).some((w) => w.op !== "create");
+  return writesFor(buildPlan(d, now, settings, facts), events, now, settings.calendar_name).some((w) => w.op !== "create");
 }
 
 export interface ReminderSummary {

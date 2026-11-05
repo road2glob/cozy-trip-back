@@ -447,6 +447,7 @@ describe("section 8: task scenarios", () => {
 
     const keys = sc(agreed).writes.map((w: any) => w.key);
     const partial = await call("record_reminder_results", {
+      plan_id: sc(agreed).plan_id,
       trip_id,
       results: [
         { key: keys[0], outcome: "created", external_event_id: "evt_1" },
@@ -475,8 +476,8 @@ describe("section 8: task scenarios", () => {
 
     const agreed = await call("plan_reminders", steps(plan)[0].args);
     const results = sc(agreed).writes.map((w: any) => ({ key: w.key, outcome: "created", external_event_id: `evt_${w.key}` }));
-    await call("record_reminder_results", { trip_id, results });
-    await call("record_reminder_results", { trip_id, results });
+    await call("record_reminder_results", { plan_id: sc(agreed).plan_id, trip_id, results });
+    await call("record_reminder_results", { plan_id: sc(agreed).plan_id, trip_id, results });
     expect(count(raw, "SELECT count(*) AS n FROM reminder_events")).toBe(4);
     expect(sc(await call("plan_reminders", { trip_id })).writes).toEqual([]);
 
@@ -495,7 +496,7 @@ describe("section 8: task scenarios", () => {
     const [leo, ava] = sc(await call("create_split_payments", steps(q)[0].args)).payments;
     const plan = await call("plan_reminders", { trip_id });
     const agreed = await call("plan_reminders", steps(plan)[0].args);
-    await call("record_reminder_results", { trip_id, results: sc(agreed).writes.map((w: any) => ({ key: w.key, outcome: "created", external_event_id: `evt_${w.key}` })) });
+    await call("record_reminder_results", { plan_id: sc(agreed).plan_id, trip_id, results: sc(agreed).writes.map((w: any) => ({ key: w.key, outcome: "created", external_event_id: `evt_${w.key}` })) });
     await captureShare(env, leo.payment_id);
     await captureShare(env, ava.payment_id);
     const paid = await call("split_status", { trip_id });
@@ -505,7 +506,7 @@ describe("section 8: task scenarios", () => {
     const second = await call("plan_reminders", steps(stop)[0].args);
     expect(sc(second).writes).toEqual([expect.objectContaining({ op: "remove", key: "unpaid-shares", external_event_id: "evt_unpaid-shares" })]);
     // A key CozyTrip did not plan is refused, so nothing else in a calendar can be claimed.
-    const foreign = await call("record_reminder_results", { trip_id, results: [{ key: "someone-elses-event", outcome: "removed" }] });
+    const foreign = await call("record_reminder_results", { plan_id: sc(second).plan_id, trip_id, results: [{ key: "someone-elses-event", outcome: "removed" }] });
     expect(sc(foreign).rejected).toEqual([{ key: "someone-elses-event", reason: "not_in_agreed_plan" }]);
   });
 
@@ -520,7 +521,7 @@ describe("section 8: task scenarios", () => {
       expect(w.description).toContain("Fictional CozyTrip sample, not a real booking.");
       expect(w.description).toContain("go back to your AI chat and say: check my CozyTrip sample trip");
     }
-    const done = await call("record_reminder_results", { trip_id, results: [{ key: sc(agreed).writes[0].key, outcome: "created", external_event_id: "e" }] });
+    const done = await call("record_reminder_results", { plan_id: sc(agreed).plan_id, trip_id, results: [{ key: sc(agreed).writes[0].key, outcome: "created", external_event_id: "e" }] });
     const everything = [textOf(plan), textOf(agreed), textOf(done), card(plan).all, card(done).all].join("\n");
     expect(everything).not.toMatch(/one[- ]click|tap to return|we will monitor|automatically (notify|remind|check)|in the background/i);
     expect(card(done).all).toContain("CozyTrip does not watch your calendar.");

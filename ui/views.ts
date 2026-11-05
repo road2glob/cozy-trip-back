@@ -483,7 +483,7 @@ function reminderPlanView(sc: Rec): ReminderPlanView {
     calendarName: str(sc.calendar_name),
     confirmed: sc.confirmed === true,
     rows: arr(sc.reminders).map((r) => ({ what: str(r.what), when: str(r.display_when), beijing: str(r.display_beijing), lead: str(r.lead), state: str(r.state) })),
-    removals: arr(sc.removals).map((r) => str(r.title)),
+    removals: arr(sc.removals).map((r) => r.move_to ? str(r.title) + " (" + str(r.calendar_name) + " → " + str(r.move_to) + ")" : str(r.title)),
     notes: Array.isArray(sc.notes) ? sc.notes.map(str).filter(Boolean) : [],
     actions: cardActions(sc),
   };
@@ -503,7 +503,7 @@ function reminderResultsView(sc: Rec): ReminderResultsView {
       what: str(r.what),
       when: str(r.display_when),
       beijing: str(r.display_beijing),
-      outcome: REMINDER_OUTCOME[str(r.outcome)] ?? str(r.outcome),
+      outcome: str(r.label) || REMINDER_OUTCOME[str(r.outcome)] || str(r.outcome),
       failed: r.outcome === "failed",
       detail: str(r.detail),
     })),
@@ -528,6 +528,9 @@ const ERROR_SENTENCE: Record<string, string> = {
   delivery_required: "Follow-up starts once the drafts are delivered.",
   refund_required: "This order did not pass verification, so there are no drafts. A refund is required, which is not the same as refunded.",
   delivery_unavailable: "No verified drafts are available for this order.",
+  stale_reminder_plan: "Your reminder plan changed. Check the existing calendar entries before trying again.",
+  calendar_unknown: "Check the original calendar before moving these reminders.",
+  calendar_name_required: "Choose the destination calendar by name.",
   operation_in_progress: "This is already running. Try again in a moment.",
   model_not_enabled: "This version works with the fictional sample only. It cannot read real orders or an inbox.",
 };

@@ -25,6 +25,12 @@ Judge A is used for the release pre-payment acceptance check; choose B or C for 
 
 Use dedicated judge-only Sandbox buyers. The team’s personal test-account credentials are not included. This project uses Sandbox only; do not use a real PayPal account or payment card.
 
+## Try the sample in chat
+
+After connecting, say “Use CozyTrip to organize my trip.” On an empty account, choose the sample import. On a returning account, the assistant opens your existing trip. Ask “Which dates should I remember?” to preview the demo reminders. To try expense splitting directly, ask “Split the sample airport pickup.” Leo and Ava each owe USD 60 and Maya owes zero.
+
+For the calendar demo, choose a writable calendar in the host, review the destinations and local times, and confirm the sample entries. Ask to see the plan again to check the recorded results. If you change calendars, the assistant shows which old entries to remove. After the calendar confirms removal, choose **Continue calendar move** to review and add the entries in the destination.
+
 ## Judge path: six steps, about five minutes
 
 1. Connect MCP Inspector to the hosted MCP URL using a judge Bearer token. Call `get_status`: a fresh identity has no trip, payment or case.
@@ -76,10 +82,10 @@ PayPal transactions, once approved and captured, are real **Sandbox** transactio
 CozyTrip plans the reminders and remembers what was written. It holds no calendar access: the host's own calendar tool does the writing, and only after the person agrees.
 
 1. `plan_reminders` with `trip_id` shows the whole plan: what, when, how far ahead, trip-local time with Beijing time beside it, which calendar, and the `CozyTrip Demo / 样本行程` label on every entry. It can be adjusted with `notify_time`, `leave_home_at`, `follow_up_at`, `exclude` and `calendar_name`. Nothing is scheduled.
-2. Once the person agrees, the same tool with the returned `confirmation_code` returns `writes`. Each is a `create`, an `update` or a `remove`, and the last two carry the recorded event ID. If the host has no calendar tool, the plan stays a plan and the agent says the reminders are not set.
-3. After the host's calendar tool has run, `record_reminder_results` records the real outcome per reminder, with the event ID the tool returned. Failures are reported as failed. Results are labeled `host-reported`, since CozyTrip cannot see the calendar itself.
+2. Once the person agrees, the same tool with the returned `confirmation_code` returns `writes` and a `plan_id`. Each is a `create`, an `update` or a `remove`, and the last two carry the recorded event ID. If the host has no calendar tool, the plan stays a plan and the agent says the reminders are not set.
+3. After the host's calendar tool has run, `record_reminder_results` takes that same `plan_id` and records the real outcome per reminder, with the event ID the tool returned. Failures are reported as failed. Results are labeled `host-reported`, since CozyTrip cannot see the calendar itself.
 
-Retries update by recorded ID and never add a second entry. Only entries reported this way are ever touched. A reminder about unpaid shares goes only to the current user's calendar and is flagged for removal once they are paid; a follow-up reminder ends the same way when the person reports a merchant reply.
+Retries use recorded event IDs. If a receipt arrives for a superseded plan, inspect the actual calendar entries before repeating any write. Only entries reported this way are ever touched. A reminder about unpaid shares goes only to the current user's calendar and is flagged for removal once they are paid; a follow-up reminder ends the same way when the person reports a merchant reply.
 
 The sample's dates are worked out once, at first import (flight seven days later, in the trip's time zone), and stored. Re-reading, re-importing or paying never moves them, and trips imported earlier keep their dates.
 

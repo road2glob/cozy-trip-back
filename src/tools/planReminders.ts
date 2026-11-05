@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getTripDetail } from "../domain/trips";
-import { localCode, validCode } from "../domain/operations";
+import { localCode, operation, validCode } from "../domain/operations";
+import { newId } from "../domain/ids";
 import { isLocalDateTime } from "../domain/dates";
 import {
   DEFAULT_SETTINGS,
@@ -42,6 +43,10 @@ const writeLine = (w: ReminderWrite) =>
   w.op === "remove" ? `- remove "${w.title}" (event ${w.external_event_id})` : `- ${w.op} "${w.title}" at ${w.start_local} ${w.timezone}, ${w.duration_minutes} min${w.op === "update" ? ` (event ${w.external_event_id})` : ""}. Description: ${w.description}`;
 
 export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
+  return operation(ctx, 'reminders:' + ctx.userId + ':' + args.trip_id, () => planForTrip(ctx, args));
+}
+
+async function planForTrip(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
   const { env, userId } = ctx;
   const d = await getTripDetail(env.DB, userId, args.trip_id);
   if (!d) return fail("not_found", "Import the sample trip before planning reminders.");
@@ -63,9 +68,18 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
   const [events, facts] = await Promise.all([readEvents(env.DB, userId, args.trip_id), reminderFacts(env.DB, userId, args.trip_id)]);
   const now = Date.now();
   const plan = buildPlan(d, now, settings, facts);
-  const writes = writesFor(plan, events, now);
+  if (args.calendar_name === null && saved.calendar_name && events.some((e) => e.state === "written")) {
+    return fail("calendar_name_required", "Choose the destination calendar by name so CozyTrip can identify the reminders to move.");
+  }
+  if (settings.calendar_name && events.some((e) => e.state === "written" && !e.calendar_name && plan.items.some((i) => i.key === e.reminder_key))) {
+    return fail("calendar_unknown", "The original calendar was not recorded. Check the existing events with your calendar tool before moving them. The saved calendar has been kept.");
+  }
+  const writes = writesFor(plan, events, now, settings.calendar_name);
+  const moves = writes.filter((w) => w.op === "remove" && w.move_to);
+  const moveNote = moves.length ? 'First remove the selected entries from their original calendar. After the removal is reported, review adding them to ' + settings.calendar_name + '.' : null;
+  if (moveNote) plan.notes.unshift(moveNote);
   // Bound to exactly what the person saw, so a plan that changes afterwards needs a new agreement.
-  const target = JSON.stringify([settings.calendar_name, writes.map((w) => (w.op === "remove" ? [w.op, w.key] : [w.op, w.key, w.title, w.start_utc]))]);
+  const target = JSON.stringify([settings.calendar_name, writes]);
   const writeKeys = new Set(writes.map((w) => w.key));
 
   const structured = {
@@ -77,11 +91,12 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
     calendar_name: settings.calendar_name,
     notify_time: settings.notify_time,
     reminders: plan.items.map((i) => ({ ...i, state: stateLabel(events, i.key, writeKeys.has(i.key)) })),
-    removals: writes.filter((w) => w.op === "remove").map((w) => ({ key: w.key, title: w.title })),
+    removals: writes.filter((w) => w.op === "remove").map((w) => ({ key: w.key, title: w.title, calendar_name: w.calendar_name, move_to: w.move_to })),
     notes: plan.notes,
   };
   const planLines = [
     `${DEMO_LABEL}. All times are trip-local (${d.trip.timezone}), with Beijing time beside them.`,
+    ...(settings.calendar_name ? [`Destination calendar: ${settings.calendar_name}.`] : []),
     ...plan.items.map((i) => `- ${i.what}. ${i.lead}. ${i.display_when} (Beijing ${i.display_beijing}).`),
     ...plan.notes,
   ];
@@ -91,20 +106,25 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
       return fail("invalid_confirmation_code", "The plan changed or this agreement expired. Nothing was recorded; show the current plan again.");
     }
     const now = new Date().toISOString();
+    const previous = await env.DB.prepare("SELECT confirmed_json FROM reminder_plans WHERE trip_id=?1 AND user_id=?2")
+      .bind(args.trip_id, userId).first<{ confirmed_json: string | null }>();
+    const last = previous?.confirmed_json ? JSON.parse(previous.confirmed_json) : null;
+    // Retrying the same approval must not invalidate receipts already travelling back from the host.
+    const planId = last?.approval === args.confirmation_code ? last.plan_id : newId("plan", 16);
     await env.DB.prepare(
       `INSERT INTO reminder_plans(trip_id,user_id,settings_json,confirmed_json,confirmed_at,updated_at) VALUES(?1,?2,?3,?4,?5,?5)
        ON CONFLICT(trip_id) DO UPDATE SET settings_json=excluded.settings_json,confirmed_json=excluded.confirmed_json,confirmed_at=excluded.confirmed_at,updated_at=excluded.updated_at WHERE reminder_plans.user_id=excluded.user_id`,
     )
-      .bind(args.trip_id, userId, JSON.stringify(settings), JSON.stringify(writes), now)
+      .bind(args.trip_id, userId, JSON.stringify(settings), JSON.stringify({ plan_id: planId, approval: args.confirmation_code, writes }), now)
       .run();
     const guidance: Guidance = writes.length
       ? {
-          fact: "The person agreed to this plan. Nothing is in a calendar yet.",
+          fact: events.some((e) => e.state === "written") ? "The person agreed. Existing reminders stay in place until the calendar tool reports each change." : "The person agreed to this plan. Nothing is in a calendar yet.",
           next_steps: [
             {
               when: "you have called this host's own calendar tool for each write: add results, with each write's key, the real outcome and the event ID it returned",
               tool: "record_reminder_results",
-              args: { trip_id: args.trip_id },
+              args: { trip_id: args.trip_id, plan_id: planId },
               needs_confirmation: false,
             },
           ],
@@ -117,11 +137,11 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         ...(writes.length
           ? [
               "Calendar writes to make with this host's own calendar tool. Report each real result, including failures. If this host has no calendar tool, make no report and tell the person the reminders are not set:",
-              ...writes.map(writeLine),
+              ...writes.map((w) => writeLine(w) + (w.calendar_name ? " Calendar: " + w.calendar_name + "." : "")),
             ]
           : []),
       ].join("\n"),
-      { ...structured, confirmed: true, writes },
+      { ...structured, confirmed: true, plan_id: planId, writes },
       guidance,
     );
   }
@@ -142,7 +162,9 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
   const writtenCount = events.filter((e) => e.state === "written").length;
   const ops = new Set(writes.map((w) => w.op));
   const ask =
-    ops.size === 1 && ops.has("create")
+    moves.length
+      ? { card_action: "Confirm calendar changes", card_message: "I confirm the listed calendar changes, including removing my old entries. Show me the remaining steps after the calendar reports back." }
+      : ops.size === 1 && ops.has("create")
       ? { card_action: "Add to my calendar", card_message: "I agree to this CozyTrip demo reminder plan. Please add it to my calendar." }
       : ops.size === 1 && ops.has("remove")
         ? { card_action: "Remove from my calendar", card_message: "I agree to remove this CozyTrip demo reminder from my calendar." }
@@ -153,9 +175,9 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
     { ...structured, confirmed: false, confirmation_code: code, codeKind: "local" },
     {
       fact:
-        toSet === 0
+        moveNote ?? (toSet === 0
           ? "A CozyTrip Demo reminder in the calendar no longer applies. It stays there until the person agrees to remove it."
-          : `This is a Demo plan with ${plan.items.length} reminders for a fictional trip. It is only a plan: ${writtenCount ? `${writtenCount} already in the calendar, ${toSet} not set` : "nothing is in any calendar"}.`,
+          : `This is a Demo plan with ${plan.items.length} reminders for a fictional trip. It is only a plan: ${writtenCount ? `${writtenCount} already in the calendar, ${toSet} not set` : "nothing is in any calendar"}.`),
       next_steps: [
         {
           when: "the person agrees to the whole plan and this host has a calendar tool. If it has none, keep the plan and say the reminders are not set, and how to connect a calendar here if you know",

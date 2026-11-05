@@ -404,14 +404,14 @@ describe("reminders", () => {
 
   it("after agreement it says nothing is set yet and offers no second press", () => {
     const { text, buttons } = showPlan({ confirmed: true, guidance: { fact: "x", end: null, next_steps: [{ when: "w", tool: "record_reminder_results", args: {}, needs_confirmation: false }] } });
-    expect(text).toContain("Nothing is set until your chat app reports the calendar result.");
+    expect(text).toContain("Your chat app will report the outcome of each calendar change.");
     expect(buttons).toEqual([]);
   });
 
   it("shows what is in the calendar and what is not", () => {
     const row = (state: string) => ({ key: state, what: state, lead: "l", display_when: "w", display_beijing: "b", state });
     const { text } = showPlan({ reminders: [row("written"), row("failed"), row("needs_update"), row("planned")] });
-    expect(text).toContain("1 in your calendar, 3 not set.");
+    expect(text).toContain("Existing reminders stay scheduled until your calendar confirms each change.");
     expect(text).toContain("In your calendar");
     expect(text).toContain("Not set");
     expect(text).toContain("Needs updating");
@@ -431,7 +431,7 @@ describe("reminders", () => {
     const preview = sc(await plan.run(ctx, { trip_id }));
     const agreed = sc(await plan.run(ctx, { trip_id, confirmation_code: preview.confirmation_code }));
     const keys = agreed.writes.map((w: any) => w.key);
-    const r = await recordResults.run(ctx, { trip_id, results: [{ key: keys[0], outcome: "created", external_event_id: "evt_1" }, { key: keys[1], outcome: "failed", detail: "Read-only calendar" }] });
+    const r = await recordResults.run(ctx, { plan_id: agreed.plan_id, trip_id, results: [{ key: keys[0], outcome: "created", external_event_id: "evt_1" }, { key: keys[1], outcome: "failed", detail: "Read-only calendar" }] });
     const { text, buttons } = show(r);
     expect(text).toContain("As reported by your chat app's calendar tool.");
     expect(text).toContain("Set");
@@ -448,7 +448,7 @@ describe("reminders", () => {
     expect(show(await status.run(ctx, { trip_id })).text).not.toContain("Demo reminders");
     const preview = sc(await plan.run(ctx, { trip_id }));
     const agreed = sc(await plan.run(ctx, { trip_id, confirmation_code: preview.confirmation_code }));
-    await recordResults.run(ctx, { trip_id, results: [{ key: agreed.writes[0].key, outcome: "created", external_event_id: "evt_1" }] });
+    await recordResults.run(ctx, { plan_id: agreed.plan_id, trip_id, results: [{ key: agreed.writes[0].key, outcome: "created", external_event_id: "evt_1" }] });
     expect(show(await status.run(ctx, { trip_id })).text).toContain("1 in your calendar");
   });
 });

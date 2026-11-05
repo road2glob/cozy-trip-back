@@ -396,7 +396,8 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
     }
     case "reminder_plan": {
       const set = view.rows.filter((r) => r.state === "written").length;
-      const left = view.rows.length - set;
+      const changing = view.rows.filter((r) => r.state === "needs_update").length;
+      const left = view.rows.length - set - changing;
       tag = sampleTag(view.label);
       body = [
         h("h2", {}, "Reminder plan"),
@@ -404,7 +405,9 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
           "p",
           { class: "muted" },
           view.confirmed
-            ? "You agreed to this plan. Nothing is set until your chat app reports the calendar result."
+            ? "You agreed to this plan. Your chat app will report the outcome of each calendar change."
+            : changing || view.removals.length
+              ? "Existing reminders stay scheduled until your calendar confirms each change."
             : view.rows.length === 0 && view.removals.length === 0
               ? "No reminder times are left on this trip."
               : set

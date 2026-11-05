@@ -311,8 +311,8 @@ describe("recording what the calendar tool did", () => {
     const { env, raw } = testEnv();
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
-    await agreed(ctx, trip_id);
-    const r = await record.run(ctx, {
+    const approved = sc(await agreed(ctx, trip_id));
+    const r = await record.run(ctx, { plan_id: approved.plan_id,
       trip_id,
       results: [
         { key: "before-departure-3d", outcome: "created" },
@@ -332,8 +332,9 @@ describe("recording what the calendar tool did", () => {
     const { env, raw } = testEnv();
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
-    const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
-    const r = await record.run(ctx, {
+    const approved = sc(await agreed(ctx, trip_id));
+    const keys = approved.writes.map((w: any) => w.key);
+    const r = await record.run(ctx, { plan_id: approved.plan_id,
       trip_id,
       results: [created(keys[0]), created(keys[1]), { key: keys[2], outcome: "failed", detail: "Calendar is read-only" }],
     });
@@ -358,8 +359,9 @@ describe("recording what the calendar tool did", () => {
     const { env, raw } = testEnv();
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
-    const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
-    const r = await record.run(ctx, { trip_id, results: [{ key: keys[0], outcome: "removed" }, { key: keys[1], outcome: "updated", external_event_id: "evt_x" }] });
+    const approved = sc(await agreed(ctx, trip_id));
+    const keys = approved.writes.map((w: any) => w.key);
+    const r = await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: [{ key: keys[0], outcome: "removed" }, { key: keys[1], outcome: "updated", external_event_id: "evt_x" }] });
     expect(sc(r).rejected.map((x: any) => x.reason)).toEqual(["outcome_does_not_match_write", "outcome_does_not_match_write"]);
     expect(events(raw)).toEqual([]);
   });
@@ -368,27 +370,29 @@ describe("recording what the calendar tool did", () => {
     const { env, raw } = testEnv();
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
-    const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
-    await record.run(ctx, { trip_id, results: [created(keys[0], "evt_first")] });
+    const approved = sc(await agreed(ctx, trip_id));
+    const keys = approved.writes.map((w: any) => w.key);
+    await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: [created(keys[0], "evt_first")] });
 
-    await record.run(ctx, { trip_id, results: [{ key: keys[0], outcome: "failed", detail: "Timed out on retry" }] });
+    await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: [{ key: keys[0], outcome: "failed", detail: "Timed out on retry" }] });
     expect(events(raw).find((e) => e.reminder_key === keys[0])).toMatchObject({ state: "written", external_event_id: "evt_first" });
 
-    const second = await record.run(ctx, { trip_id, results: [created(keys[0], "evt_second")] });
+    const second = await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: [created(keys[0], "evt_second")] });
     expect(sc(second).rejected).toEqual([{ key: keys[0], reason: "already_recorded", external_event_id: "evt_first" }]);
     expect(text(second)).toContain("If your calendar tool just made another entry, remove that one.");
     expect(events(raw).find((e) => e.reminder_key === keys[0])).toMatchObject({ external_event_id: "evt_first" });
 
-    expect(sc(await record.run(ctx, { trip_id, results: [created(keys[0], "evt_first")] })).rejected).toEqual([]);
+    expect(sc(await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: [created(keys[0], "evt_first")] })).rejected).toEqual([]);
   });
 
   it("a retry updates, never duplicates: one row per reminder, and an unchanged entry is left alone", async () => {
     const { env, raw } = testEnv();
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
-    const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
-    await record.run(ctx, { trip_id, results: keys.map((k: string) => created(k)) });
-    await record.run(ctx, { trip_id, results: keys.map((k: string) => created(k)) });
+    const approved = sc(await agreed(ctx, trip_id));
+    const keys = approved.writes.map((w: any) => w.key);
+    await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: keys.map((k: string) => created(k)) });
+    await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: keys.map((k: string) => created(k)) });
     expect(events(raw)).toHaveLength(4);
 
     const nothing = await plan.run(ctx, { trip_id });
@@ -403,8 +407,9 @@ describe("recording what the calendar tool did", () => {
     const { env, raw } = testEnv();
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
-    const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
-    await record.run(ctx, { trip_id, results: keys.map((k: string) => created(k)) });
+    const approved = sc(await agreed(ctx, trip_id));
+    const keys = approved.writes.map((w: any) => w.key);
+    await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: keys.map((k: string) => created(k)) });
 
     const moved = sc(await plan.run(ctx, { trip_id, notify_time: "08:00" }));
     expect(moved.reminders.find((i: any) => i.key === keys[0]).state).toBe("needs_update");
@@ -413,11 +418,59 @@ describe("recording what the calendar tool did", () => {
     expect(update).toMatchObject({ op: "update", external_event_id: `evt_${keys[0]}`, start_local: "2026-11-05T08:00" });
     expect(a.writes.find((w: any) => w.key.startsWith("two-hours"))).toBeUndefined();
 
-    await record.run(ctx, { trip_id, results: [{ key: keys[0], outcome: "failed", detail: "Network" }] });
+    const failed = await record.run(ctx, { plan_id: a.plan_id, trip_id, results: [{ key: keys[0], outcome: "failed", detail: "Network" }] });
+    expect(sc(failed).reminder_results[0].label).toContain("Update failed; original reminder is still scheduled");
     expect(events(raw).find((e) => e.reminder_key === keys[0])).toMatchObject({ state: "written", external_event_id: `evt_${keys[0]}`, detail: "Network" });
-    await record.run(ctx, { trip_id, results: [{ key: keys[0], outcome: "updated", external_event_id: `evt_${keys[0]}` }] });
+    await record.run(ctx, { plan_id: a.plan_id, trip_id, results: [{ key: keys[0], outcome: "updated", external_event_id: `evt_${keys[0]}` }] });
     const settled = sc(await plan.run(ctx, { trip_id }));
     expect(settled.reminders.find((i: any) => i.key === keys[0]).state).toBe("written");
+  });
+
+  it("only the approved revision can record receipts, even when the old write has the same key", async () => {
+    const { env, raw } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const old = sc(await agreed(ctx, trip_id));
+    const preview = sc(await plan.run(ctx, { trip_id, notify_time: "10:00" }));
+    const confirmation = { trip_id, confirmation_code: preview.confirmation_code };
+    const current = sc(await plan.run(ctx, confirmation));
+    expect(sc(await plan.run(ctx, confirmation)).plan_id).toBe(current.plan_id);
+    expect(current.plan_id).not.toBe(old.plan_id);
+    const results = [created(old.writes[0].key)];
+    for (const plan_id of [old.plan_id, undefined]) {
+      expect(sc(await record.run(ctx, { trip_id, plan_id, results })).error.code).toBe("stale_reminder_plan");
+    }
+    expect(events(raw)).toHaveLength(0);
+    expect(sc(await record.run(ctx, { trip_id, plan_id: current.plan_id, results })).summary.set).toBe(1);
+  });
+
+  it("moves only acknowledged entries to the destination and keeps an old event when removal fails", async () => {
+    const { env, raw } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const original = sc(await agreed(ctx, trip_id));
+    const keys: string[] = original.writes.map((w: any) => w.key);
+    await record.run(ctx, { trip_id, plan_id: original.plan_id, results: keys.map((k) => created(k)) });
+    const preview = sc(await plan.run(ctx, { trip_id, calendar_name: "Travel" }));
+    expect(preview.removals).toHaveLength(keys.length);
+    expect(events(raw).every((e) => e.state === "written")).toBe(true);
+    const move = sc(await plan.run(ctx, { trip_id, confirmation_code: preview.confirmation_code }));
+    expect(move.writes.every((w: any) => w.op === "remove" && w.calendar_name === "Personal" && w.move_to === "Travel")).toBe(true);
+    const receipt = sc(await record.run(ctx, { trip_id, plan_id: move.plan_id, results: keys.map((key, i) => ({ key, outcome: i === 0 ? "failed" : "removed" })) }));
+    expect(receipt.guidance.fact).toContain("original reminders remain scheduled");
+    expect(receipt.reminder_results[0].label).toContain("Removal failed");
+    expect(receipt.guidance.next_steps[0].card_action).toBe("Continue calendar move");
+    expect(events(raw).find((r) => r.reminder_key === keys[0])?.external_event_id).toBe("evt_" + keys[0]);
+    const retry = sc(await agreed(ctx, trip_id));
+    expect(retry.writes[0]).toMatchObject({ key: keys[0], op: "remove", calendar_name: "Personal" });
+    expect(retry.writes.slice(1).every((w: any) => w.op === "create" && w.calendar_name === "Travel")).toBe(true);
+    await record.run(ctx, { trip_id, plan_id: retry.plan_id, results: keys.map((key, i) => i === 0 ? { key, outcome: "removed" } : { key, outcome: "created", external_event_id: "travel_" + key, calendar_name: "Travel" }) });
+    const last = sc(await agreed(ctx, trip_id));
+    expect(last.writes).toHaveLength(1);
+    expect(last.writes[0]).toMatchObject({ op: "create", calendar_name: "Travel", key: keys[0] });
+    await record.run(ctx, { trip_id, plan_id: last.plan_id, results: [{ key: keys[0], outcome: "created", external_event_id: "travel_first" }] });
+    expect(sc(await plan.run(ctx, { trip_id })).writes).toEqual([]);
+    expect(raw.prepare("SELECT DISTINCT calendar_name FROM reminder_events").all()).toEqual([{ calendar_name: "Travel" }]);
   });
 
   it("another user cannot record against this trip", async () => {
@@ -437,8 +490,9 @@ describe("recording what the calendar tool did", () => {
     expect(sc(before).guidance.fact).not.toMatch(/in the calendar/);
     expect(sc(before).guidance.next_steps[0]).toMatchObject({ tool: "plan_reminders", card_action: "See reminder plan" });
 
-    const keys = sc(await agreed(ctx, trip_id)).writes.map((w: any) => w.key);
-    await record.run(ctx, { trip_id, results: [created(keys[0]), { key: keys[1], outcome: "failed" }] });
+    const approved = sc(await agreed(ctx, trip_id));
+    const keys = approved.writes.map((w: any) => w.key);
+    await record.run(ctx, { plan_id: approved.plan_id, trip_id, results: [created(keys[0]), { key: keys[1], outcome: "failed" }] });
     const after = await status.run(ctx, { trip_id });
     expect(sc(after).reminders).toEqual({ written: 1, failed: 1 });
     expect(text(after)).toContain("1 Demo reminders are in the calendar");
@@ -470,7 +524,7 @@ describe("reminders stop when the reason is gone", () => {
     expect(p.notes.join(" ")).toContain("only to your own calendar, never to Leo or Ava");
 
     const a = sc(await plan.run(ctx, { trip_id, confirmation_code: p.confirmation_code }));
-    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    await record.run(ctx, { plan_id: a.plan_id, trip_id, results: a.writes.map((w: any) => created(w.key)) });
 
     // One paid: the entry is still right to have, but its text changes, so it is an update.
     await capture(ctx, leo.payment_id);
@@ -491,7 +545,7 @@ describe("reminders stop when the reason is gone", () => {
     expect(stop.removals.map((r: any) => r.key)).toEqual(["unpaid-shares"]);
     const b = sc(await plan.run(ctx, { trip_id, confirmation_code: stop.confirmation_code }));
     expect(b.writes).toEqual([expect.objectContaining({ op: "remove", key: "unpaid-shares", external_event_id: "evt_unpaid-shares" })]);
-    const removed = await record.run(ctx, { trip_id, results: [{ key: "unpaid-shares", outcome: "removed" }] });
+    const removed = await record.run(ctx, { plan_id: b.plan_id, trip_id, results: [{ key: "unpaid-shares", outcome: "removed" }] });
     expect(sc(removed).summary.removed).toBe(1);
     expect(events(raw).find((e) => e.reminder_key === "unpaid-shares")).toMatchObject({ state: "removed", external_event_id: null });
     expect(sc(await splitCheck.run(ctx, { trip_id })).guidance.next_steps).toEqual([]);
@@ -524,7 +578,7 @@ describe("reminders stop when the reason is gone", () => {
     const p = sc(await plan.run(ctx, { trip_id, follow_up_at: "2026-11-09T18:00" }));
     expect(p.reminders.map((i: any) => i.key)).toContain("follow-up");
     const a = sc(await plan.run(ctx, { trip_id, confirmation_code: p.confirmation_code }));
-    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    await record.run(ctx, { plan_id: a.plan_id, trip_id, results: a.writes.map((w: any) => created(w.key)) });
 
     const c = sc(await updateCase.run(ctx, { trip_id, run_id: q.runId, status: "merchant_responded", note: "They replied" }));
     const done = sc(await updateCase.run(ctx, c.guidance.next_steps[0].args));
@@ -541,7 +595,7 @@ describe("reminders stop when the reason is gone", () => {
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
     const a = sc(await agreed(ctx, trip_id));
-    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    await record.run(ctx, { plan_id: a.plan_id, trip_id, results: a.writes.map((w: any) => created(w.key)) });
     setClock("2026-11-06T12:00:00Z");
     const later = sc(await plan.run(ctx, { trip_id }));
     expect(later.removals).toEqual([]);
@@ -555,7 +609,7 @@ describe("reminders follow the trip", () => {
     const ctx = toolCtx(env);
     const trip_id = await imported(ctx);
     const first = sc(await agreed(ctx, trip_id));
-    await record.run(ctx, { trip_id, results: first.writes.map((w: any) => created(w.key)) });
+    await record.run(ctx, { plan_id: first.plan_id, trip_id, results: first.writes.map((w: any) => created(w.key)) });
 
     const preview = sc(await detect.run(ctx, { trip_id }));
     const confirmed = sc(await detect.run(ctx, { trip_id, confirmation_code: preview.confirmation_code }));
@@ -578,7 +632,7 @@ describe("reminders follow the trip", () => {
     const trip_id = await imported(ctx);
     const p = sc(await plan.run(ctx, { trip_id, leave_home_at: "05:30" }));
     const a = sc(await plan.run(ctx, { trip_id, confirmation_code: p.confirmation_code }));
-    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    await record.run(ctx, { plan_id: a.plan_id, trip_id, results: a.writes.map((w: any) => created(w.key)) });
     setClock("2026-11-08T14:00:00Z"); // 06:00 on departure morning in Los Angeles
     expect(sc(await plan.run(ctx, { trip_id })).removals).toEqual([]);
     setClock("2026-11-08T12:00:00Z"); // 04:00: the 05:30 entry is still ahead
@@ -592,7 +646,7 @@ describe("reminders follow the trip", () => {
     const trip_id = await imported(ctx);
     const p = sc(await plan.run(ctx, { trip_id, leave_home_at: "05:30" }));
     const a = sc(await plan.run(ctx, { trip_id, confirmation_code: p.confirmation_code }));
-    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    await record.run(ctx, { plan_id: a.plan_id, trip_id, results: a.writes.map((w: any) => created(w.key)) });
     const r = sc(await plan.run(ctx, { trip_id, leave_home_at: null }));
     expect(r.guidance.next_steps[0]).toMatchObject({ card_action: "Remove from my calendar" });
     expect(r.guidance.next_steps[0].card_message).toContain("remove this CozyTrip demo reminder");
@@ -606,7 +660,7 @@ describe("reminders follow the trip", () => {
     const q = sc(await split.run(ctx, { trip_id }));
     const [leo] = sc(await createSplit.run(ctx, { trip_id, confirmation_code: q.confirmation_code })).payments;
     const a = sc(await agreed(ctx, trip_id));
-    await record.run(ctx, { trip_id, results: a.writes.map((w: any) => created(w.key)) });
+    await record.run(ctx, { plan_id: a.plan_id, trip_id, results: a.writes.map((w: any) => created(w.key)) });
     const order = await getSettlement(env, leo.payment_id);
     order.state = "captured";
     order.paypalCaptureId = "FAKE";

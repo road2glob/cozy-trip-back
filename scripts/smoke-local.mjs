@@ -94,7 +94,7 @@ const early2 = await call("record_reminder_results", { trip_id: tripId, results:
 check("no calendar result accepted before agreement", early2.structuredContent?.error?.code === "confirmation_required");
 const agreed = await call("plan_reminders", { trip_id: tripId, confirmation_code: plan.structuredContent.confirmation_code });
 check("agreeing returns the writes for the host", agreed.structuredContent.confirmed === true && agreed.structuredContent.writes.length === plan.structuredContent.reminders.length && agreed.structuredContent.writes.every((w) => w.op === "create"));
-const recorded = await call("record_reminder_results", { trip_id: tripId, results: [{ key: agreed.structuredContent.writes[0].key, outcome: "created", external_event_id: "evt_smoke" }] });
+const recorded = await call("record_reminder_results", { plan_id: agreed.structuredContent.plan_id, trip_id: tripId, results: [{ key: agreed.structuredContent.writes[0].key, outcome: "created", external_event_id: "evt_smoke" }] });
 check("a reported write is recorded as host-reported", recorded.structuredContent.provenance === "host-reported" && recorded.structuredContent.summary.set === 1);
 const replan = await call("plan_reminders", { trip_id: tripId });
 check("a retry skips what is already written", replan.structuredContent.reminders[0].state === "written" && replan.structuredContent.reminders.slice(1).every((r) => r.state === "planned"));

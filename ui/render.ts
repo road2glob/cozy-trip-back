@@ -75,6 +75,7 @@ export interface UiState {
   notice: string | null;
   manualLink: string | null;
   now: number;
+  paypal?: { phase: "loading" | "ready" | "fallback" | "verifying"; button?: HTMLElement };
 }
 
 const brand = () => h("div", { class: "brand" }, h("span", { class: "logo" }, icon("pin", "icon icon-sm")), h("span", {}, "CozyTrip"));
@@ -260,6 +261,22 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       ];
       break;
     }
+    case "paypal_checkout":
+      body = [
+        h("p", {}, "Real PayPal Sandbox transaction"),
+        h("h2", {}, "Open PayPal"),
+        h("p", {}, "PayPal Sandbox — test money only"),
+        view.displayAmount ? h("p", { class: "price" }, view.displayAmount) : null,
+        ui.paypal?.phase === "verifying"
+          ? h("div", {}, h("p", { role: "status" }, "No verified capture yet."), h("div", { class: "actions" }, button("Check again", () => actions.verify(view.tripId, view.runId), ui, "secondary")))
+          : ui.paypal?.phase === "fallback"
+          ? ui.manualLink
+            ? h("p", { class: "small" }, "Copy this link into your browser: ", h("span", { class: "mono select" }, ui.manualLink))
+            : h("div", { class: "actions" }, button("Open PayPal", () => actions.openCheckout(view), ui, "primary", "external"))
+          : h("div", { class: "paypal-button-slot" }, ui.paypal?.button ?? h("p", { role: "status", class: "muted" }, "Loading PayPal…")),
+        note("Not paid yet. Payment counts only when the receipt shows the capture and a passed verification."),
+      ];
+      break;
     case "payment":
       body = [
         view.stub ? stubBanner() : sandboxBanner(),

@@ -330,6 +330,19 @@ describe("complete flow safety and delivery", () => {
     expect(result.method).toBe("workers-ai");
     expect(result.output.materials[0].text).toContain("USD 645.00");
   });
+  it("accepts the parsed response array returned by the live Workers AI binding", async () => {
+    const prose = [
+      "Please explain available flight options and the conditions before I decide.",
+      "Please explain hotel date change options and applicable terms.",
+      "Please explain pickup rescheduling and cruise change terms if necessary.",
+    ];
+    const { env } = testEnv({ AI: { run: vi.fn(async () => ({ response: prose, choices: [{message: {content: JSON.stringify(prose)}}] })) } as unknown as Ai });
+    const ctx = toolCtx(env), t = await trip(ctx);
+    const result = await draftMaterials(env, (await getTripDetail(env.DB, ctx.userId, t))!, "service");
+    expect(result.method).toBe("workers-ai");
+    expect(result.output.materials[0].text).toContain(prose[0]);
+    expect(result.output.materials.every(m => m.text.endsWith("Draft. Not sent."))).toBe(true);
+  });
   it("unsafe AI claims and invented numbers fall back to templates", async () => {
     const { env } = testEnv({
       AI: {

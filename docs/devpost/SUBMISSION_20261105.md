@@ -36,4 +36,4 @@ Complete and document release acceptance with dedicated judge Sandbox buyers, th
 
 ## Built with
 
-TypeScript, Cloudflare Workers, D1, Workers AI (Google Gemma 4), Model Context Protocol SDK v2, PayPal Orders v2 Sandbox, GitHub Actions, Hono, Zod, Vitest.
+TypeScript, Cloudflare Workers, D1, Workers AI (Meta Llama 3.2), Model Context Protocol SDK v2, PayPal Orders v2 Sandbox, GitHub Actions, Hono, Zod, Vitest.

@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   deploy:
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -39,15 +40,6 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
-
-      # 有 migrations/ 目录时才执行；只会应用还没跑过的迁移
-      - name: Apply D1 migrations
-        run: |
-          if [ -d migrations ]; then
-            npx wrangler d1 migrations apply cozytrip --remote
-          else
-            echo "没有 migrations/ 目录，跳过"
-          fi
 
       - name: Deploy
         run: npx wrangler deploy

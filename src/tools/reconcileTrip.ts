@@ -23,7 +23,8 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
   if (d.totalMinor !== 149100 || e?.total !== d.totalMinor)
     return fail(
       "ledger_mismatch",
-      "Booking and expense totals do not match. No payment action is available.",
+      `Bookings come to ${formatUsd(d.totalMinor)} and expenses to ${formatUsd(e?.total ?? 0)}. These do not reconcile, so no payment action is available.`,
+      { booking_total_minor: d.totalMinor, expense_total_minor: e?.total ?? 0 },
     );
   await ctx.env.DB.prepare(
     "UPDATE trips SET state='reconciled' WHERE trip_id=?1 AND user_id=?2 AND state='draft'",

@@ -7,6 +7,7 @@ import { fail, type ToolContext } from "./common";
 import { guided, nextStep } from "./guidance";
 export const SPLIT_NOTICE =
   "Sandbox demo: funds go to the CozyTrip Team sandbox merchant, not a real person-to-person transfer.";
+export const DEMO_NOTICE = "Sandbox demo, not a real person-to-person transfer.";
 export const PAYEE_NOTICE = "Pays the CozyTrip Team sandbox merchant, not Maya.";
 export const name = "quote_split";
 export const description =
@@ -143,6 +144,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         confirmation_code: code,
         codeKind: "local",
         disclaimer: SPLIT_NOTICE,
+        demo_notice: DEMO_NOTICE,
         payee_notice: PAYEE_NOTICE,
       },
       existing?.n

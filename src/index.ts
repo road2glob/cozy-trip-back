@@ -1,4 +1,5 @@
 import { fail } from "./tools/common";
+import { ensureGuidance } from "./tools/guidance";
 import { Hono } from "hono";
 import { createMcpHandler } from "agents/mcp/server";
 import type { Env } from "./env";
@@ -43,7 +44,7 @@ async function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pro
   const caseAvailable=!!delivered;
   if(!caseAvailable&&request.method==='POST'){
     const message=await request.clone().json().catch(()=>null) as {id?:string|number;method?:string;params?:{name?:string}}|null;
-    if(message?.method==='tools/call'&&message.params?.name==='update_case_status')return Response.json({jsonrpc:'2.0',id:message.id,result:fail('delivery_required','Case tracking becomes available after paid verified drafts are delivered.')},{headers:{'Access-Control-Allow-Origin':'*'}});
+    if(message?.method==='tools/call'&&message.params?.name==='update_case_status')return Response.json({jsonrpc:'2.0',id:message.id,result:ensureGuidance(fail('delivery_required','Case tracking becomes available after paid verified drafts are delivered.'))},{headers:{'Access-Control-Allow-Origin':'*'}});
   }
   const requestHost = new URL(request.url).hostname;
   // Deploys and remote migrations are separate steps: reminder tools appear only once their tables exist.

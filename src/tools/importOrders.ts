@@ -7,11 +7,11 @@ import { guided, nextStep, withGuidance } from "./guidance";
 
 export const name = "import_orders";
 export const description =
-  "Import only when the user asks. mode sample loads the fictional Seattle–San Francisco trip and does not start a payment-service run or a demo cancellation. mode text returns an inferred preview until confirmation_code is supplied. A second sample import returns the same trip_id.";
+  "Import only when the user asks. mode sample loads a fictional sample trip and starts nothing else. This version supports only that sample: mode text explains that real orders cannot be read, and imports nothing. A second sample import returns the same trip_id.";
 export const inputSchema = z.object({
   mode: z.enum(["sample", "text"]).describe("sample loads the fictional sample trip"),
-  text: z.string().optional().describe("Order confirmation text (mode text only)"),
-  confirmation_code: z.string().optional().describe("Local preview code (mode text only)"),
+  text: z.string().optional().describe("Not read in this version"),
+  confirmation_code: z.string().optional().describe("Not used in this version"),
 });
 export const annotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
@@ -60,13 +60,14 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
     run_count: 0,
   };
 
-  const owes = d.balances.map((b) => `${b.from} owes ${b.to} ${formatUsd(b.amount_minor)}`).join("; ");
+  // Shares are paid to the Team sandbox merchant, so this never says anyone owes Maya.
+  const shares = d.balances.map((b) => `${b.from}'s share ${formatUsd(b.amount_minor)}`).join(", ");
   const text = [
     created ? `Imported the sample trip ${tripId}.` : `The sample trip was already imported: ${tripId}.`,
     `${d.trip.origin_city} (${d.trip.origin_code}) to ${d.trip.destination_city} (${d.trip.destination_code}), ${d.trip.start_date} to ${d.trip.end_date}.`,
     `Travelers: ${d.participants.map((p) => (p.role === "organizer" ? `${p.name} (organizer)` : p.name)).join(", ")}.`,
     ...d.bookings.map((b) => `- ${b.title}: ${formatUsd(b.amount_minor)}`),
-    `Total ${formatUsd(d.totalMinor)}. ${owes}.`,
+    `Total ${formatUsd(d.totalMinor)}. Airport pickup prepaid by Maya: ${shares}.`,
     "No issue has been simulated and no payment has started.",
     SIMULATED_NOTICE,
   ].join("\n");

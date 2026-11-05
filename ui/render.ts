@@ -214,7 +214,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       tag = sampleTag(SIMULATED);
       body = [
         h("h2", {}, view.preview ? "Preview: a fictional flight cancellation" : "Simulated cancellation recorded"),
-        view.preview ? h("p", { class: "muted" }, "Nothing has changed. It costs nothing to confirm.") : null,
+        view.preview ? h("p", { class: "muted" }, "Nothing has changed. Confirming records a simulation only: no real flight is cancelled, and it costs nothing.") : null,
         h(
           "ul",
           { class: "list" },
@@ -249,7 +249,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
               h(
                 "div",
                 { class: "item-text" },
-                h("div", { class: "row between" }, h("span", { class: "strong" }, o.title), o.cost ? h("span", { class: "amount" }, o.cost) : null),
+                h("div", { class: "row between" }, h("span", { class: "strong" }, o.title), o.cost ? h("span", { class: "amount" }, o.cost) : h("span", { class: "muted small nowrap" }, "Cost unknown")),
                 h("span", { class: "small" }, o.summary),
                 h("span", { class: "muted small" }, o.timing),
                 h("span", { class: "muted small" }, o.limitations),
@@ -282,7 +282,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
                 ),
               ),
             ),
-            h("p", { class: "muted small" }, "Only you can send these. CozyTrip contacted no one."),
+            h("p", { class: "muted small" }, "The merchants are fictional, so nothing needs sending. CozyTrip contacted no one."),
             h("p", { class: "muted small" }, `Progress: ${view.followUp}`),
           ]
         : [
@@ -298,6 +298,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
         h("h2", {}, view.title),
         h("p", { class: "price" }, view.price),
         view.scope.length ? h("ul", { class: "scope" }, view.scope.map((item) => h("li", {}, item))) : null,
+        h("p", { class: "muted small" }, "Not a rebooking or hotel fee, and no refund is guaranteed."),
         s.stage === "approve"
           ? [
               h("p", { class: "muted small" }, "Not paid. No PayPal order exists until you confirm."),
@@ -385,6 +386,7 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
             )
           : h("p", { class: "muted" }, "Nothing has been requested."),
         view.rows.length ? h("p", { class: "muted small" }, `${view.organizer.name} owes ${view.organizer.due} and has no payment.`) : null,
+        payable.length ? h("p", { class: "muted small" }, "CozyTrip sends nothing to anyone. You can share these requests yourself.") : null,
         anyCheck ? h("div", { class: "actions" }, button("Check again", () => actions.run(checkShares(view.tripId)), ui)) : actionRow(view.actions, actions, ui),
         payable.some((r) => ["ready", "fallback"].includes(ui.checkouts[shareKey(r)]?.phase ?? "")) ? h("p", { class: "muted small" }, "Already paid? Say so in the chat and CozyTrip will check these shares.") : null,
         view.rows.length ? note(view.notice) : null,

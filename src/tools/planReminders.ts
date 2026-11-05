@@ -150,7 +150,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
           : `This is a Demo plan with ${plan.items.length} reminders for a fictional trip. It is only a plan: ${writtenCount ? `${writtenCount} already in the calendar, ${toSet} not set` : "nothing is in any calendar"}.`,
       next_steps: [
         {
-          when: "the person agrees to the whole plan and this host has a calendar tool. If it has none, keep the plan and say the reminders are not set",
+          when: "the person agrees to the whole plan and this host has a calendar tool. If it has none, keep the plan and say the reminders are not set, and how to connect a calendar here if you know",
           tool: name,
           args: { trip_id: args.trip_id, confirmation_code: code },
           needs_confirmation: true,

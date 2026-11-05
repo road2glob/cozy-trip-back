@@ -11,7 +11,7 @@ const TWO_HOURS_MS = 2 * 60 * 60_000;
 export const EVENT_MINUTES = 15;
 
 export const REMINDER_DESCRIPTION =
-  "Fictional CozyTrip sample, not a real booking. To continue, ask CozyTrip about this trip in your AI chat.";
+  "Fictional CozyTrip sample, not a real booking. To continue, go back to your AI chat and say: check my CozyTrip sample trip.";
 
 export interface ReminderSettings {
   /** Trip-local time of day for reminders that are about a date, not a time */
@@ -72,7 +72,7 @@ export function buildPlan(d: TripDetail, now: number, settings: ReminderSettings
   const drafts: Draft[] = [];
 
   if (flight) {
-    drafts.push({ key: "before-departure-3d", what: `${flight.title} departs in 3 days`, lead: "3 days before departure", local: `${addDays(departure, -3)}T${notify}` });
+    drafts.push({ key: "before-departure-3d", what: `${flight.title} departs in 3 days: check documents and bookings`, lead: "3 days before departure", local: `${addDays(departure, -3)}T${notify}` });
   }
 
   // The flight, and every booking, gets the day before. Bookings on the same day share one reminder.

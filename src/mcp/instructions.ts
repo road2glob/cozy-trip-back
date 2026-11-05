@@ -14,6 +14,6 @@ All materials are drafts, not sent. Do not urge users to contact fictional merch
 Propose a clearly labeled Demo reminder plan. Use a calendar tool actually available to the host only after user consent; report the actual write result, or explain that reminders are not set.
 Never claim a calendar plan is scheduled, a merchant was contacted, a refund arrived, or all host capabilities work without evidence.`;
 
-const USING_GUIDANCE = `Tool results carry guidance (fact, next_steps, end). Reuse args exactly. A card button press is the person's confirmation; do not ask again. If they say they handled something, ask what they actually did before recording it.`;
+const USING_GUIDANCE = `Tool results carry guidance (fact, next_steps, end). Reuse args exactly. A card button press is the person's confirmation; do not ask again. If they say they dealt with a merchant, ask what they actually did before recording it.`;
 
 export const AGENT_INSTRUCTIONS = `${AGENT_CONTRACT}\n\n${USING_GUIDANCE}`;

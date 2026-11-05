@@ -5,7 +5,7 @@ import { operation, validCode } from "../domain/operations";
 import { splitStatus } from "../domain/settlements";
 import { formatUsd } from "../domain/money";
 import { createSettlement } from "../paymentService";
-import { PAYEE_NOTICE, SPLIT_NOTICE } from "./quoteSplit";
+import { DEMO_NOTICE, PAYEE_NOTICE, SPLIT_NOTICE } from "./quoteSplit";
 import { fail, paymentReality, type ToolContext } from "./common";
 import { guided, sharesGuidance } from "./guidance";
 export const name = "create_split_payments";
@@ -114,6 +114,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         payments,
         organizer: { name: "Maya", due_minor: 0, display_due: formatUsd(0), prompt: false },
         disclaimer: SPLIT_NOTICE,
+        demo_notice: DEMO_NOTICE,
         payee_notice: PAYEE_NOTICE,
       },
       sharesGuidance(args.trip_id, payments),

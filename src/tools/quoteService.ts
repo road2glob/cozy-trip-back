@@ -19,7 +19,7 @@ const SERVICE_SCOPE = ["Airline contact points", "Hotel change request", "Transf
 
 export const name = "quote_service";
 export const description =
-  "Quote CozyTrip Team after-sales. The price is read from the payment-service workflow registry (USD 9.90). Returns confirmation_code, which is the server-issued approval token. Does not create a PayPal order. Show the summary and wait for the user before create_service_payment.";
+  "Quote CozyTrip Team after-sales, only when the person asks for it. The price is read from the payment-service workflow registry. Returns confirmation_code, which is the server-issued approval token. Does not create a PayPal order. Show the summary and wait for the user before create_service_payment.";
 // Phase 1: only trip_id is required. issue_id becomes required once detect_impact exists (2026-11-06).
 export const inputSchema = z.object({
   trip_id: z.string().min(1).describe("trip_id returned by import_orders"),
@@ -78,7 +78,7 @@ function quoteResult(
   };
   const lines = [
     `Quote: ${workflow.title}, ${price}. The price comes from the payment-service workflow registry.`,
-    `Covers: ${SERVICE_SCOPE.join("; ")}. Drafts only, not sent.`,
+    `Covers: ${SERVICE_SCOPE.join("; ")}. Drafts only, not sent. It is not a rebooking or hotel fee, and it does not guarantee a refund.`,
     `Run ${so.run_id} is ${so.run_state}.`,
     `confirmation_code: ${so.confirmation_code} (expires ${so.expires_at})`,
     "This step does not create a PayPal order. Show this summary to the user and wait for their go-ahead before calling create_service_payment.",

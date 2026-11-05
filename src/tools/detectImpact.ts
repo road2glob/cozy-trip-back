@@ -75,7 +75,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         codeKind: "local",
       },
       {
-        fact: "This is a preview of a fictional cancellation. Nothing has changed and it costs nothing.",
+        fact: "This is a preview of a fictional cancellation. Nothing has changed. Confirming records a simulation only: no real flight is cancelled, and it costs nothing.",
         next_steps: [nextStep.confirmIssue(args.trip_id, code)],
         end: null,
       },

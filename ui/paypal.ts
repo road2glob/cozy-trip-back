@@ -22,6 +22,13 @@ declare global {
 
 let loading: Promise<PayPalSdk> | undefined;
 
+/**
+ * The SDK's handshake with its own frame uses location.origin, which is "null" in a srcdoc document, so
+ * createInstance can only time out there (ERR_DEV_POST_MESSAGE_ACK_TIMEOUT, whatever the CSP). Some hosts
+ * load cards that way. The person goes straight to the link rather than waiting out the deadline.
+ */
+const sdkCanRunHere = () => window.location.origin !== "null";
+
 /** No script is requested until a real pending checkout card is rendered. */
 export function loadPayPalSdk(): Promise<PayPalSdk> {
   if (window.paypal?.createInstance) return Promise.resolve(window.paypal);
@@ -107,7 +114,7 @@ export function mountPayPalCheckout(
     paymentError({ code });
   };
   const initialize = async () => {
-    if (!clientId || !orderId) return fallback();
+    if (!clientId || !orderId || !sdkCanRunHere()) return fallback();
     const sdk = await loadSdk();
     if (!active) return;
     const instance = await payPalInstance(sdk, clientId);

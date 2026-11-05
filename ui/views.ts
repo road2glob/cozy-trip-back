@@ -383,7 +383,7 @@ export function splitQuoteView(sc: Rec): SplitQuoteView {
   return {
     total: str(sc.display_total),
     rows: arr(sc.shares).map((s) => ({ name: str(s.name), share: str(s.display_share), due: str(s.display_due), prepaid: s.sample_prepayment === true })),
-    notice: str(sc.disclaimer),
+    notice: str(sc.demo_notice) || str(sc.disclaimer),
     payeeNotice: str(sc.payee_notice),
     actions: cardActions(sc),
   };
@@ -440,7 +440,7 @@ export function splitView(sc: Rec): SplitView {
     rows,
     organizer: { name: str(organizer.name), due: str(organizer.display_due) },
     allPaid: rows.length > 0 && rows.every((r) => r.paid),
-    notice: str(sc.disclaimer),
+    notice: str(sc.demo_notice) || str(sc.disclaimer),
     payeeNotice: str(sc.payee_notice),
     actions: cardActions(sc),
   };
@@ -527,7 +527,6 @@ const ERROR_SENTENCE: Record<string, string> = {
   delivery_required: "Follow-up starts once the drafts are delivered.",
   refund_required: "This order did not pass verification, so there are no drafts. A refund is required, which is not the same as refunded.",
   delivery_unavailable: "No verified drafts are available for this order.",
-  ledger_mismatch: "The booking and expense totals do not match, so no payment is available.",
   operation_in_progress: "This is already running. Try again in a moment.",
   model_not_enabled: "This version works with the fictional sample only. It cannot read real orders or an inbox.",
 };
@@ -560,7 +559,9 @@ export function cardFor(structured: unknown): CardView {
   const sc = structured;
   if (isRec(sc.error)) {
     const code = str(sc.error.code);
-    return { kind: "error", code, sentence: ERROR_SENTENCE[code] ?? UNKNOWN_ERROR, message: str(sc.error.message), actions: cardActions(sc) };
+    // A mismatch's message states the two totals, and that is the thing a person needs to see.
+    const message = str(sc.error.message);
+    return { kind: "error", code, sentence: code === "ledger_mismatch" ? message : ERROR_SENTENCE[code] ?? UNKNOWN_ERROR, message, actions: cardActions(sc) };
   }
   if (sc.view === "paypal_checkout" && sc.reality === "paypal_sandbox" && sc.state === "awaiting-payment" && typeof sc.paypalOrderId === "string" && sc.paypalOrderId && typeof sc.approveUrl === "string" && "chargeId" in sc) {
     return { kind: "paypal_checkout", ...paymentView(sc), paypalOrderId: sc.paypalOrderId };

@@ -200,7 +200,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
     const report = reportCaseStep(args.trip_id, runId, trackingState);
     return guided(
       [
-        "Payment verified and prepared drafts delivered. Draft. Not sent. Only you can send them to merchants.",
+        "Payment verified and prepared drafts delivered. Draft. Not sent. The merchants are fictional, so nothing needs sending.",
         ...output.materials.map((m) => `\n${m.title}\n${m.text}`),
       ].join("\n"),
       {
@@ -215,7 +215,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         available_actions: ["update_case_status"],
       },
       {
-        fact: "Payment verified. Three drafts are ready. They are not sent, and only the person can send them.",
+        fact: "Payment verified. Three drafts are ready. They are not sent, and nothing needs sending because the merchants are fictional. Do not urge the person to contact anyone.",
         next_steps: report ? [report] : [],
         end: report ? null : "The person's follow-up record is complete. No payment action remains.",
       },

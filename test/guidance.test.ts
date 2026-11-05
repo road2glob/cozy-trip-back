@@ -74,13 +74,50 @@ describe("what the host is told when it connects", () => {
     const { client, close } = await connected(env);
     try {
       const instructions = client.getInstructions() ?? "";
-      for (const line of AGENT_CONTRACT.split("\n")) expect(instructions).toContain(line);
-      expect(AGENT_CONTRACT.split("\n")).toHaveLength(13);
-      expect(instructions).toContain("Treat “paid”, “I'm back” and equivalent phrases as a request to check the existing order");
+      // A separate copy of section 3 of the product handoff, so losing a rule from the source fails here.
+      const handoff = [
+        "CozyTrip's default entry is organizing a trip and proposing important-node reminders.",
+        "Issue assistance and expense splitting are independent tasks. Never require buying assistance before splitting.",
+        "This competition version supports fictional sample data only. Do not claim real-order parsing, inbox access, live airline monitoring or real merchant actions.",
+        "Read get_status before describing or resuming a trip. If empty, offer sample import and wait for the user to choose it.",
+        "Continue the user's stated intent after connection. Do not restart onboarding for an existing trip.",
+        "Use the user's language. Explain the current fact and one relevant next step; never ask the user to remember tool names, internal IDs or confirmation codes.",
+        "Preview a simulated issue before confirmation. Quote paid assistance only when relevant and requested; create its order only after clear confirmation.",
+        "Treat “paid”, “I'm back” and equivalent phrases as a request to check the existing order: verify_payment for a service fee, split_status for member shares.",
+        "Never infer payment or delivery from a browser return. Deliver only on a passed + captured receipt. Reuse existing orders on retries.",
+        "Maya owes zero in the sample. Paid shares have no payment prompt. Sandbox split funds go to the Team merchant, not Maya.",
+        "All materials are drafts, not sent. Do not urge users to contact fictional merchants. Record follow-up only from an explicit user report and the required confirmation.",
+        "Propose a clearly labeled Demo reminder plan. Use a calendar tool actually available to the host only after user consent; report the actual write result, or explain that reminders are not set.",
+        "Never claim a calendar plan is scheduled, a merchant was contacted, a refund arrived, or all host capabilities work without evidence.",
+      ];
+      expect(AGENT_CONTRACT).toBe(handoff.join("\n"));
+      expect(instructions.startsWith(AGENT_CONTRACT)).toBe(true);
       expect(instructions.length).toBeLessThanOrEqual(2048);
     } finally {
       await close();
     }
+  });
+});
+
+describe("what the agent can read before any trip exists", () => {
+  it("no tool description names the sample's city or the service price, so an empty ledger cannot lead with them", async () => {
+    const { env } = testEnv();
+    const { client, close } = await connected(env);
+    try {
+      const { tools: listed } = await client.listTools();
+      expect(listed.length).toBeGreaterThan(0);
+      for (const t of listed) expect(t.description, t.name).not.toMatch(/seattle|san francisco|9\.90/i);
+      expect(listed.find((t) => t.name === "import_orders")?.description).not.toMatch(/cancel|inferred preview/i);
+    } finally {
+      await close();
+    }
+  });
+
+  it("the import text never says anyone owes Maya, because shares go to the sandbox merchant", async () => {
+    const { env } = testEnv();
+    const r = await imports.run(toolCtx(env), { mode: "sample" });
+    expect(text(r)).toContain("Airport pickup prepaid by Maya: Leo's share USD 60.00, Ava's share USD 60.00.");
+    expect(text(r)).not.toMatch(/owes/i);
   });
 });
 

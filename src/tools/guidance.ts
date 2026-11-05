@@ -214,7 +214,7 @@ const CASE_NEXT: Record<string, CaseStatus | undefined> = {
 };
 
 const CASE_REPORT: Record<CaseStatus, string> = {
-  submitted_by_user: "the person reports they sent the drafts themselves",
+  submitted_by_user: "the person reports they sent the drafts themselves. This record covers the whole service order, so say so if they sent only one",
   awaiting_merchant: "the person reports they are now waiting for the merchant",
   merchant_responded: "the person reports what the merchant replied, passed as note",
 };
@@ -252,7 +252,13 @@ export function sharesGuidance(tripId: string, shares: ShareFact[], staleReminde
     return { fact: "No share payments exist yet.", next_steps: [nextStep.quoteSplit(tripId, "Review the split")], end: null };
   }
   const fact = `${sharesFact(shares)} Maya owes USD 0.00.`;
-  if (shares.some((s) => s.prompt)) return { fact, next_steps: [nextStep.checkShares(tripId)], end: null };
+  if (shares.some((s) => s.prompt)) {
+    return {
+      fact: `${fact} The requests are ready, and CozyTrip sends nothing to anyone: the person can share the links themselves.`,
+      next_steps: [nextStep.checkShares(tripId)],
+      end: null,
+    };
+  }
   const done = "No share is waiting for payment, so no payment entry remains.";
   return staleReminder ? { fact: `${fact} ${done}`, next_steps: [nextStep.removeStaleReminder(tripId)], end: null } : { fact, next_steps: [], end: done };
 }

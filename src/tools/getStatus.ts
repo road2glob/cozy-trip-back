@@ -1,6 +1,7 @@
 import {splitStatus} from '../domain/settlements';
 import { z } from "zod";
 import { getTripDetail, listTripIds, type TripDetail } from "../domain/trips";
+import { formatUsd } from "../domain/money";
 import { listServiceOrders, updateServiceOrder } from "../domain/serviceOrders";
 import { isTerminal } from "../domain/runStates";
 import { readEvents, reminderTablesExist, summarize } from "../domain/reminders";
@@ -28,6 +29,8 @@ function tripSummary(d: TripDetail) {
     reality: d.trip.reality,
     participants: d.participants.map((p) => ({ participant_id: p.participant_id, name: p.name, role: p.role })),
     booking_count: d.bookings.length,
+    // Enough to answer "what should I check?" from what is known, without importing again.
+    bookings: d.bookings.map((b) => ({ title: b.title, kind: b.kind, local_start: b.local_start, status: b.status, display_amount: formatUsd(b.amount_minor) })),
     demo_event: d.demoEvent ? { event_id: d.demoEvent.event_id, kind: d.demoEvent.kind, state: d.demoEvent.state } : null,
   };
 }
@@ -73,9 +76,10 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
     return guided("", { ...structured, available_actions: ["import_orders"] }, { fact: "CozyTrip is connected. There are no trips yet.", next_steps: [nextStep.importSample()], end: null });
   }
 
-  const lines = trips.map(
-    (t) => `${t.title} (${t.trip_id}): ${t.start_date} to ${t.end_date}, ${t.booking_count} bookings, state ${t.state}.`,
-  );
+  const lines = trips.flatMap((t) => [
+    `${t.title} (${t.trip_id}): ${t.start_date} to ${t.end_date}, ${t.booking_count} bookings, state ${t.state}.`,
+    ...t.bookings.map((b) => `- ${b.title}: ${b.local_start}, ${b.status}, ${b.display_amount}.`),
+  ]);
   lines.push(SIMULATED_NOTICE);
   if (runs.length === 0) {
     lines.push("No payment-service runs.");

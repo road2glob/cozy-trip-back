@@ -87,7 +87,7 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(host.call).not.toHaveBeenCalled();
   });
 
-  it("approval asks only verify_payment once and renders only the server's pending result", async () => {
+  it("[S8] approval asks only verify_payment once and renders only the server's pending result", async () => {
     await boot();
     await callbacks.onApprove({ orderId: "IGNORED-CALLBACK-ID" });
     await callbacks.onApprove({});
@@ -98,7 +98,7 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(document.querySelector("paypal-button")).toBeNull();
   });
 
-  it("closing PayPal never claims nothing was charged, and starts no verification or new order", async () => {
+  it("[S9] closing PayPal never claims nothing was charged, and starts no verification or new order", async () => {
     await boot();
     callbacks.onCancel();
     expect(document.body.textContent).toContain("PayPal was closed. No verified payment yet.");
@@ -120,7 +120,7 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
-  it("payment errors do not imply success or start server work", async () => {
+  it("[S9] payment errors do not imply success or start server work", async () => {
     await boot();
     callbacks.onError({ code: "INSTRUMENT_DECLINED" });
     expect(document.body.textContent).toContain("No verified result for this step.");
@@ -128,7 +128,7 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(document.body.textContent).not.toContain("Payment verified");
   });
 
-  it("a blocked popup switches to the host open-link button, and opening it makes checking the main action", async () => {
+  it("[S8] a blocked popup switches to the host open-link button, and opening it makes checking the main action", async () => {
     start.mockRejectedValue({ code: "ERR_DEV_UNABLE_TO_OPEN_POPUP" });
     await boot();
     document.querySelector<HTMLElement>("paypal-button")!.click();
@@ -192,7 +192,7 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(host.open).not.toHaveBeenCalled();
   });
 
-  it("an eight-second SDK timeout falls back and a late load cannot restore a stale button", async () => {
+  it("[S9] an eight-second SDK timeout falls back and a late load cannot restore a stale button", async () => {
     vi.useFakeTimers();
     delete window.paypal;
     const append = vi.spyOn(document.head, "append").mockImplementation(() => {});
@@ -215,6 +215,22 @@ describe("PayPal service card through the existing App host bridge", () => {
     (append.mock.calls[0][0] as HTMLScriptElement).dispatchEvent(new Event("error"));
     await flush();
     expect(buttons().map(x => x.textContent)).toEqual(["Open PayPal"]);
+  });
+
+  it("[S8] in a srcdoc document, where the SDK can never finish, it goes straight to the link without requesting the SDK", async () => {
+    delete window.paypal;
+    const append = vi.spyOn(document.head, "append").mockImplementation(() => {});
+    (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("about:srcdoc");
+    try {
+      expect(window.location.origin).toBe("null");
+      await boot();
+      expect(append).not.toHaveBeenCalled();
+      expect(createInstance).not.toHaveBeenCalled();
+      expect(buttons().map(x => x.textContent)).toEqual(["Open PayPal"]);
+      expect(document.body.textContent).toContain("PayPal button unavailable. Open PayPal instead.");
+    } finally {
+      (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("http://localhost:3000/");
+    }
   });
 
   it("old SDK callbacks cannot verify after a different tool result replaces the card", async () => {
@@ -319,7 +335,7 @@ describe("member shares on one card", () => {
     expect(host.call).not.toHaveBeenCalled();
   });
 
-  it("an approval checks split_status, never verify_payment, and keeps the other member's button", async () => {
+  it("[S8] an approval checks split_status, never verify_payment, and keeps the other member's button", async () => {
     await boot(unpaid());
     host.call.mockResolvedValue({ content: [{ type: "text", text: "one paid" }], structuredContent: splitResult([paid("Leo", "pay_leo"), share("Ava", "pay_ava")]) });
     await sessions[0].callbacks.onApprove({ orderId: "IGNORED" });
@@ -354,7 +370,7 @@ describe("member shares on one card", () => {
     expect(host.call).not.toHaveBeenCalled();
   });
 
-  it("a blocked popup falls back for that member only, and returning means checking the shares", async () => {
+  it("[S8] a blocked popup falls back for that member only, and returning means checking the shares", async () => {
     await boot(unpaid());
     sessions[0].start.mockRejectedValue({ code: "ERR_DEV_UNABLE_TO_OPEN_POPUP" });
     [...document.querySelectorAll<HTMLElement>("paypal-button")][0].click();

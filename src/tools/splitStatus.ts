@@ -6,7 +6,7 @@ import { formatUsd } from "../domain/money";
 import { operation } from "../domain/operations";
 import { fail, paymentReality, type ToolContext } from "./common";
 import { guided, sharesGuidance } from "./guidance";
-import { PAYEE_NOTICE, SPLIT_NOTICE } from "./quoteSplit";
+import { DEMO_NOTICE, PAYEE_NOTICE, SPLIT_NOTICE } from "./quoteSplit";
 export const name = "split_status";
 export const description =
   "Reconcile existing Sandbox settlement orders and show who has paid. Does not create orders; already-paid members and Maya have no payment prompt.";
@@ -36,6 +36,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         payments,
         organizer: { name: "Maya", due_minor: 0, display_due: formatUsd(0), prompt: false },
         disclaimer: SPLIT_NOTICE,
+        demo_notice: DEMO_NOTICE,
         payee_notice: PAYEE_NOTICE,
       },
       sharesGuidance(args.trip_id, payments, await hasStaleReminder(d, ctx.env.DB, ctx.userId)),

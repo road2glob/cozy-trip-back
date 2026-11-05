@@ -72,7 +72,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
   return guided(
     [
       "Three recovery options. No purchase, submission or merchant contact was made.",
-      ...display.map((o) => `- ${o.title}: ${o.summary} ${o.timing} ${o.limitations}${o.display_cost ? ` Cost: ${o.display_cost}.` : ""}`),
+      ...display.map((o) => `- ${o.title}: ${o.summary} ${o.timing} ${o.limitations}${o.display_cost ? ` Cost: ${o.display_cost}.` : " Cost unknown."}`),
     ].join("\n"),
     { trip_id: args.trip_id, issue_id: d.demoEvent.event_id, options: display },
     {

@@ -109,6 +109,9 @@ describe("entry", () => {
     const { text, buttons } = show(await reconcile.run(ctx, { trip_id }));
     expect(text).toContain("That did not go through");
     expect(buttons).not.toContain("Confirm USD 9.90");
+    // It says what differs, then stops at the accounts.
+    expect(text).toContain("Bookings come to USD 1,491.00 and expenses to USD 1,491.04.");
+    expect(text).toContain("no payment action is available");
   });
 });
 
@@ -232,6 +235,17 @@ describe("service fee", () => {
   });
 });
 
+describe("drafts need the server's word", () => {
+  it("a result that says unpaid shows no drafts, even if some arrive with it", () => {
+    const view = cardFor({ trip_id: "t", runId: "r", state: "awaiting-payment", paid: false, output: { materials: [{ kind: "x", title: "Leaked draft", text: "Should not show" }] } });
+    if (view.kind !== "delivery") throw new Error(view.kind);
+    expect(view.materials).toEqual([]);
+    render(root, view, actions, ui());
+    expect(root.textContent).not.toContain("Leaked draft");
+    expect(root.textContent).toContain("No verified capture yet.");
+  });
+});
+
 describe("split", () => {
   it("the quote shows everyone's amount, both notices and only Confirm split", async () => {
     const { env } = testEnv();
@@ -242,8 +256,8 @@ describe("split", () => {
     expect(text).toContain("USD 180.00 prepaid by Maya");
     expect(text).toContain("USD 0.00 due");
     expect(text.match(/USD 60\.00 due/g)).toHaveLength(2);
-    expect(text).toContain("not a real person-to-person transfer");
-    expect(text).toContain("Pays the CozyTrip Team sandbox merchant, not Maya.");
+    expect(text).toContain("Sandbox demo, not a real person-to-person transfer.");
+    expect(text).toContain("Pays the CozyTrip Team sandbox merchant, not Maya");
     expect(buttons).toEqual(["Confirm split"]);
     expect(root.querySelectorAll("a")).toHaveLength(0);
     pressFirst();

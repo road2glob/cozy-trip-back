@@ -11,4 +11,6 @@ export interface Env {
   TASKPASS_BASE_URL?: string;
   /** Public origin of the return pages, no path, e.g. https://mcp.cozytrip.dev */
   PUBLIC_RETURN_ORIGIN: string;
+  /** HMAC key for demo token hashes; a secret when deployed */
+  DEMO_TOKEN_PEPPER: string;
 }

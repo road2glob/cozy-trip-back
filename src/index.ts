@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { authenticate, unauthorized } from "./mcp/auth";
 import { createServerFactory } from "./mcp/server";
 import { payRoutes } from "./routes/pay";
+import { stubCheckoutPage } from "../stub/checkout";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -17,7 +18,16 @@ app.get("/health", async (c) => {
 
 app.route("/pay", payRoutes);
 
+// Stands in for PayPal's approval page when TASKPASS_TRANSPORT=stub; does not exist otherwise
+app.get("/__stub/checkout/:chargeId", (c) =>
+  c.env.TASKPASS_TRANSPORT === "stub" ? stubCheckoutPage(c.env, c.req.param("chargeId")) : c.notFound(),
+);
+
 app.get("/", (c) => c.text("CozyTrip MCP server. MCP endpoint: /mcp"));
+
+function isLocalOrWorkersDev(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".workers.dev");
+}
 
 async function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   if (request.method === "OPTIONS") {
@@ -27,14 +37,11 @@ async function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pro
   const props = await authenticate(request, env);
   if (!props) return unauthorized();
 
-  const publicHost = new URL(env.PUBLIC_RETURN_ORIGIN).hostname;
   const requestHost = new URL(request.url).hostname;
-  const isLocal = requestHost === "localhost" || requestHost === "127.0.0.1";
-
   const handler = createMcpHandler(createServerFactory(env), {
     authContext: { props },
-    // Locally, rely on the handler's localhost defaults; deployed, accept only the public hostname
-    ...(isLocal ? {} : { allowedHostnames: [publicHost] }),
+    // localhost and workers.dev use the handler's defaults; a custom domain accepts only the public hostname
+    ...(isLocalOrWorkersDev(requestHost) ? {} : { allowedHostnames: [new URL(env.PUBLIC_RETURN_ORIGIN).hostname] }),
   });
   return handler(request, env, ctx);
 }

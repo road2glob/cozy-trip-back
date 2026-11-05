@@ -1,0 +1,18 @@
+# Copy to .dev.vars for local use (or run: npm run dev:init). .dev.vars is gitignored; never commit it.
+# Key names and placeholders only.
+
+# HMAC key for demo token hashes. Local: 32 random bytes. The deployed value is a secret set by the PM.
+DEMO_TOKEN_PEPPER=replace-me
+
+# Second credential on every call to the payment & verification service; the stub returns 401 without it.
+# Local: another random value. The deployed value is a secret set by the PM.
+TASKPASS_PRODUCT_TOKEN=replace-me
+
+# stub = in-process deterministic fake; binding = Service Binding TASKPASS
+TASKPASS_TRANSPORT=stub
+
+# Public origin of the return pages, no path. Deployed: https://mcp.cozytrip.dev
+PUBLIC_RETURN_ORIGIN=http://localhost:8788
+
+# Fallback only (TASKPASS_TRANSPORT=https). Not used in phase 1.
+# TASKPASS_BASE_URL=

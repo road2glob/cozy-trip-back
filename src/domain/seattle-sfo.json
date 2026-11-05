@@ -1,0 +1,72 @@
+{
+  "sampleKey": "seattle-sfo",
+  "title": "Seattle to San Francisco",
+  "origin": { "code": "SEA", "city": "Seattle" },
+  "destination": { "code": "SFO", "city": "San Francisco" },
+  "startDate": "2026-11-08",
+  "endDate": "2026-11-11",
+  "timezone": "America/Los_Angeles",
+  "provenance": "source",
+  "reality": "fictional_sample",
+  "participants": [
+    { "key": "maya", "name": "Maya", "role": "organizer" },
+    { "key": "leo", "name": "Leo", "role": "member" },
+    { "key": "ava", "name": "Ava", "role": "member" }
+  ],
+  "bookings": [
+    {
+      "key": "flight",
+      "kind": "flight",
+      "vendor": "Sample Air",
+      "title": "Sample Air 210 SEA to SFO",
+      "localStart": "2026-11-08T08:00",
+      "travelers": 3,
+      "amountMinor": 64500,
+      "merchantRefundStatus": "not_requested"
+    },
+    {
+      "key": "hotel",
+      "kind": "hotel",
+      "vendor": "Sample Bay Hotel",
+      "title": "Sample Bay Hotel, 3 nights",
+      "localStart": "2026-11-08",
+      "nights": 3,
+      "amountMinor": 54000
+    },
+    {
+      "key": "transfer",
+      "kind": "transfer",
+      "vendor": "Sample Transfer Co",
+      "title": "Sample Transfer Co airport pickup",
+      "localStart": "2026-11-08",
+      "amountMinor": 18000,
+      "linkedBookingKey": "flight"
+    },
+    {
+      "key": "cruise",
+      "kind": "activity",
+      "vendor": "Sample Bay Cruise",
+      "title": "Sample Bay Cruise",
+      "localStart": "2026-11-10T14:00",
+      "amountMinor": 12600
+    }
+  ],
+  "expenses": [
+    { "bookingKey": "flight", "amountMinor": 64500 },
+    { "bookingKey": "hotel", "amountMinor": 54000 },
+    {
+      "bookingKey": "transfer",
+      "amountMinor": 18000,
+      "paidBy": "maya",
+      "paymentMethod": "sample_prepayment",
+      "shares": [
+        { "participantKey": "maya", "amountMinor": 6000 },
+        { "participantKey": "leo", "amountMinor": 6000 },
+        { "participantKey": "ava", "amountMinor": 6000 }
+      ]
+    },
+    { "bookingKey": "cruise", "amountMinor": 12600 }
+  ],
+  "demoEvent": { "kind": "flight_cancellation", "bookingKey": "flight", "state": "armed" },
+  "totalMinor": 149100
+}

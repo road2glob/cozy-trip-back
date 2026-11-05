@@ -3,7 +3,16 @@
   "name": "cozytrip",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-03",
+  // agents/mcp/server carries the per-request auth context through node:async_hooks
+  "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
     { "binding": "DB", "database_name": "cozytrip", "database_id": "62057f8c-2023-466c-9265-07259143f597" }
-  ]
+  ],
+  // Payment & verification service, same account, Service Binding. Local dev uses the stub instead.
+  "services": [{ "binding": "TASKPASS", "service": "taskpass" }],
+  "vars": {
+    // Deployed default; .dev.vars overrides it with "stub" locally
+    "TASKPASS_TRANSPORT": "binding",
+    "PUBLIC_RETURN_ORIGIN": "https://mcp.cozytrip.dev"
+  }
 }

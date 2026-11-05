@@ -3,13 +3,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --remote",
-    "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "dev": "wrangler dev --port 8788",
+    "dev:init": "node scripts/init-dev-vars.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply cozytrip --local",
+    "token:issue": "node scripts/issue-demo-token.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261104.1",
     "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
     "wrangler": "^4.157.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "agents": "0.33.0",
+    "hono": "^4.13.16",
+    "zod": "^4.6.7"
   }
 }

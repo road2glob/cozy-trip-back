@@ -1,21 +1,55 @@
-export interface Env {
-  DB: D1Database;
+import { Hono } from "hono";
+import { createMcpHandler } from "agents/mcp/server";
+import type { Env } from "./env";
+import { authenticate, unauthorized } from "./mcp/auth";
+import { createServerFactory } from "./mcp/server";
+import { payRoutes } from "./routes/pay";
+import { stubCheckoutPage } from "../stub/checkout";
+
+const app = new Hono<{ Bindings: Env }>();
+
+// Read-only health check: confirms the D1 binding answers; writes nothing
+app.get("/health", async (c) => {
+  const row = await c.env.DB.prepare(
+    "SELECT count(*) AS tables FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\' AND name NOT LIKE 'd1\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",
+  ).first<{ tables: number }>();
+  return c.json({ ok: true, tables: row?.tables ?? 0 });
+});
+
+app.route("/pay", payRoutes);
+
+// Stands in for PayPal's approval page when TASKPASS_TRANSPORT=stub; does not exist otherwise
+app.get("/__stub/checkout/:chargeId", (c) =>
+  c.env.TASKPASS_TRANSPORT === "stub" ? stubCheckoutPage(c.env, c.req.param("chargeId")) : c.notFound(),
+);
+
+app.get("/", (c) => c.text("CozyTrip MCP server. MCP endpoint: /mcp"));
+
+function isLocalOrWorkersDev(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".workers.dev");
+}
+
+async function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    // CORS preflight carries no Authorization header; the handler answers it
+    return createMcpHandler(createServerFactory(env))(request, env, ctx);
+  }
+  const props = await authenticate(request, env);
+  if (!props) return unauthorized();
+
+  const requestHost = new URL(request.url).hostname;
+  const handler = createMcpHandler(createServerFactory(env), {
+    authContext: { props },
+    // localhost and workers.dev use the handler's defaults; a custom domain accepts only the public hostname
+    ...(isLocalOrWorkersDev(requestHost) ? {} : { allowedHostnames: [new URL(env.PUBLIC_RETURN_ORIGIN).hostname] }),
+  });
+  return handler(request, env, ctx);
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    // 只读健康检查：确认 D1 绑定能连通，不写任何数据
-    if (url.pathname === "/health") {
-      const row = await env.DB.prepare(
-        "SELECT count(*) AS tables FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\'",
-      ).first<{ tables: number }>();
-      return Response.json({ ok: true, tables: row?.tables ?? 0 });
-    }
-
-    return new Response("CozyTrip worker is running. Try /health", {
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+  async fetch(request, env, ctx) {
+    const { pathname } = new URL(request.url);
+    if (pathname === "/mcp") return handleMcp(request, env, ctx);
+    return app.fetch(request, env, ctx);
   },
 } satisfies ExportedHandler<Env>;

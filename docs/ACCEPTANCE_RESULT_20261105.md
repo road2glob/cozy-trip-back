@@ -11,7 +11,7 @@ Date: 2026-11-05. Covers section 8 of `PRODUCT_LOGIC_HANDOFF_20261105.md`, on th
 | **Tests** | `npm test`, 231 tests. `test/acceptance.test.ts` has one test or more per scenario (`npx vitest run -t "S13"`), through the real tool wrapper and real card DOM, checked in both the text and the card. | Payments and calendar receipts are fixtures. |
 | **Browser** | The real built card in headless Chrome, under the official `AppBridge` and the resource's own CSP, calling a real local Worker on the stub transport. 41 checks. | Not a real host. No PayPal payment. |
 | **Real SDK** | The real PayPal v6 Sandbox SDK and button inside the real card. Fake order IDs, nothing clicked. | No popup and no approval. |
-| **Model** | Two scripted Chinese conversations with a small Claude model (Haiku), given only the server's instructions, tool list and text results, on the local stub. 24 turns. | One model, not a real host, no cards. |
+| **Model** | Three scripted Chinese conversations with a small Claude model (Haiku), given only the server's instructions, tool list and text results, on the local stub. 29 turns. | One model, not a real host, no cards. |
 | **Smoke** | `scripts/smoke-local.mjs` against `wrangler dev --local`. 35 checks, including time-zone maths on workerd. | Stub transport. |
 
 I also broke 39 key behaviors one at a time to confirm the tests catch them. All 39 are caught, after two tests were tightened because of this check and one was extended. An independent code review of the whole stack raised 10 findings. All 10 were real and are fixed here, each with a test.
@@ -68,7 +68,7 @@ Before those checks can run on the hosted server, apply `migrations/0003_reminde
 
 So whether a judge sees the button depends on the host. The card now detects this and goes straight to Open PayPal, with no SDK request and no wait. Your Cursor result suggests Cursor does not use `srcdoc`. I could not find out what Claude or ChatGPT use.
 
-**Eight seconds can be tight.** Through this machine's proxy, a cold SDK load took over eight seconds and the card fell back to the link, while cached loads took about four. The fallback is honest, but a judge's first card on a slow network may not show the button. I left your eight seconds unchanged. Raising it would be one number in `ui/paypal.ts`.
+**Eight seconds can be tight.** Through this machine's proxy, a cold SDK load took over eight seconds and the card fell back to the link, while cached loads took about four to six. The fallback is honest, but a judge's first card on a slow network may not show the button. I left your eight seconds unchanged. Raising it would be one number in `ui/paypal.ts`.
 
 **Two buttons do render on one page,** with one shared SDK instance and one session per order. Clicking them is item 3 above.
 
@@ -76,5 +76,6 @@ So whether a judge sees the button depends on the host. The card now detects thi
 - PayPal's button follows the browser's language, so it read in Chinese on this machine, and it keeps its own square corners. The card leaves both alone, as section 6.5 asks.
 - The browser reports one CSP notice about `eval` from `zod`. It is caught and harmless.
 - `check.yml` only runs on PRs into `main`, so #12 to #15 get no CI until they are retargeted. I ran the same three commands locally on the top of the stack.
-- The small model sometimes said it would "record" a payment after "paid", though the check itself was right. I added a line to the result saying that only the check marks a share as paid. A second model run confirmed that it still happens occasionally, and it claims nothing false.
+- In the first two model runs, the small model said it would "record" a payment after "paid", though the check itself was right. After I narrowed one instruction and added a line saying only the check marks a share as paid, the third run said it would check again instead. One run is not proof, so this is worth watching on your host.
+- With no calendar tool, the first model run still confirmed the plan before saying the reminders were not set. Nothing false was said and nothing was written, so I left it.
 - The judge path in the README still has six steps and does not mention reminders. That text is yours, so I left it.

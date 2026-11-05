@@ -32,12 +32,14 @@ export interface CardAction {
   label: string;
   tool: string;
   args: Rec;
+  /** Set when only the host can do this: the button sends these words to the chat instead of calling the tool. */
+  message?: string;
 }
 
 function cardActions(sc: Rec): CardAction[] {
   const guidance = isRec(sc.guidance) ? sc.guidance : {};
   return arr(guidance.next_steps).flatMap((s) =>
-    typeof s.card_action === "string" && s.card_action && typeof s.tool === "string" && isRec(s.args) ? [{ label: s.card_action, tool: s.tool, args: s.args }] : [],
+    typeof s.card_action === "string" && s.card_action && typeof s.tool === "string" && isRec(s.args) ? [{ label: s.card_action, tool: s.tool, args: s.args, ...(typeof s.card_message === "string" && s.card_message ? { message: s.card_message } : {}) }] : [],
   );
 }
 
@@ -110,7 +112,7 @@ export interface SplitPaymentView {
 
 export type StatusView =
   | { kind: "empty"; actions: CardAction[] }
-  | { kind: "status"; trips: TripSummaryView[]; runs: RunView[]; payments: SplitPaymentView[]; followUp: string | null; actions: CardAction[] };
+  | { kind: "status"; trips: TripSummaryView[]; runs: RunView[]; payments: SplitPaymentView[]; followUp: string | null; reminders: { written: number; failed: number } | null; actions: CardAction[] };
 
 function stepState(s: string): StepView["state"] {
   if (s === "succeeded") return "done";
@@ -152,6 +154,7 @@ export function statusView(sc: Rec): StatusView {
     }),
     payments: arr(sc.split_payments).map((p) => ({ name: str(p.name), state: str(p.state), stateLabel: SHARE_LABEL[str(p.state)] ?? str(p.state) })),
     followUp: followUp ? caseLabel(followUp) : null,
+    reminders: isRec(sc.reminders) && (num(sc.reminders.written) || num(sc.reminders.failed)) ? { written: num(sc.reminders.written) ?? 0, failed: num(sc.reminders.failed) ?? 0 } : null,
     actions,
   };
 }
@@ -458,6 +461,55 @@ export interface CaseRecordView {
   evidence: string;
 }
 
+// ---- reminders (plan_reminders, record_reminder_results) ---------------------------------------
+
+export interface ReminderPlanView {
+  label: string;
+  timezone: string;
+  calendarName: string;
+  confirmed: boolean;
+  rows: Array<{ what: string; when: string; beijing: string; lead: string; state: string }>;
+  removals: string[];
+  notes: string[];
+  actions: CardAction[];
+}
+
+function reminderPlanView(sc: Rec): ReminderPlanView {
+  return {
+    label: str(sc.label),
+    timezone: str(sc.timezone),
+    calendarName: str(sc.calendar_name),
+    confirmed: sc.confirmed === true,
+    rows: arr(sc.reminders).map((r) => ({ what: str(r.what), when: str(r.display_when), beijing: str(r.display_beijing), lead: str(r.lead), state: str(r.state) })),
+    removals: arr(sc.removals).map((r) => str(r.title)),
+    notes: Array.isArray(sc.notes) ? sc.notes.map(str).filter(Boolean) : [],
+    actions: cardActions(sc),
+  };
+}
+
+export interface ReminderResultsView {
+  rows: Array<{ what: string; when: string; beijing: string; outcome: string; failed: boolean; detail: string }>;
+  rejected: number;
+  actions: CardAction[];
+}
+
+const REMINDER_OUTCOME: Record<string, string> = { created: "Set", updated: "Updated", removed: "Removed", failed: "Not set" };
+
+function reminderResultsView(sc: Rec): ReminderResultsView {
+  return {
+    rows: arr(sc.reminder_results).map((r) => ({
+      what: str(r.what),
+      when: str(r.display_when),
+      beijing: str(r.display_beijing),
+      outcome: REMINDER_OUTCOME[str(r.outcome)] ?? str(r.outcome),
+      failed: r.outcome === "failed",
+      detail: str(r.detail),
+    })),
+    rejected: arr(sc.rejected).length,
+    actions: cardActions(sc),
+  };
+}
+
 // ---- dispatch -------------------------------------------------------------------------------
 
 export type CardView =
@@ -475,6 +527,8 @@ export type CardView =
   | ({ kind: "split" } & SplitView)
   | ({ kind: "case_preview" } & CasePreviewView)
   | ({ kind: "case_record" } & CaseRecordView)
+  | ({ kind: "reminder_plan" } & ReminderPlanView)
+  | ({ kind: "reminder_results" } & ReminderResultsView)
   | { kind: "unknown" };
 
 /** Picks the card from the shape of structuredContent, so one page serves every tool that links it */
@@ -489,6 +543,8 @@ export function cardFor(structured: unknown): CardView {
   // A repeat order call on an order with nothing left to pay reads like an unpaid check, without a link.
   if ("chargeId" in sc) return { kind: "delivery", ...deliveryView({ ...sc, paid: false, output: null }) };
   if (sc.codeKind === "approval") return { kind: "quote", ...quoteView(sc) };
+  if (Array.isArray(sc.reminders)) return { kind: "reminder_plan", ...reminderPlanView(sc) };
+  if (Array.isArray(sc.reminder_results)) return { kind: "reminder_results", ...reminderResultsView(sc) };
   if (Array.isArray(sc.impacts)) return { kind: "impact", ...impactView(sc) };
   if (Array.isArray(sc.options)) return { kind: "options", ...optionsView(sc) };
   if (Array.isArray(sc.shares)) return { kind: "split_quote", ...splitQuoteView(sc) };

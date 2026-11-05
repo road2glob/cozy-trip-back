@@ -4,6 +4,7 @@ import { createMcpHandler } from "agents/mcp/server";
 import type { Env } from "./env";
 import { authenticate, unauthorized } from "./mcp/auth";
 import { createServerFactory } from "./mcp/server";
+import { reminderTablesExist } from "./domain/reminders";
 import { payRoutes } from "./routes/pay";
 import { stubCheckoutPage } from "../stub/checkout";
 
@@ -45,7 +46,9 @@ async function handleMcp(request: Request, env: Env, ctx: ExecutionContext): Pro
     if(message?.method==='tools/call'&&message.params?.name==='update_case_status')return Response.json({jsonrpc:'2.0',id:message.id,result:fail('delivery_required','Case tracking becomes available after paid verified drafts are delivered.')},{headers:{'Access-Control-Allow-Origin':'*'}});
   }
   const requestHost = new URL(request.url).hostname;
-  const handler = createMcpHandler(createServerFactory(env,caseAvailable), {
+  // Deploys and remote migrations are separate steps: reminder tools appear only once their tables exist.
+  const remindersAvailable = await reminderTablesExist(env.DB);
+  const handler = createMcpHandler(createServerFactory(env,caseAvailable,remindersAvailable), {
     authContext: { props },
     // localhost and workers.dev use the handler's defaults; a custom domain accepts only the public hostname
     ...(isLocalOrWorkersDev(requestHost) ? {} : { allowedHostnames: [new URL(env.PUBLIC_RETURN_ORIGIN).hostname] }),

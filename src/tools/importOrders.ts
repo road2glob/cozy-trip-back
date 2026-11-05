@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getTripDetail, importSampleTrip } from "../domain/trips";
+import { reminderTablesExist } from "../domain/reminders";
 import { formatUsd } from "../domain/money";
 import { SIMULATED_NOTICE, fail, type ToolContext, type ToolResult } from "./common";
 import { guided, nextStep } from "./guidance";
@@ -70,7 +71,9 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
   const guidance = created
     ? {
         fact: `The sample trip is organized: ${d.bookings.length} bookings, ${d.participants.length} travelers, ${formatUsd(d.totalMinor)}. Simulated travel data.`,
-        next_steps: [nextStep.previewIssue(tripId, "Preview a simulated issue"), nextStep.quoteSplit(tripId), nextStep.checkOrders(tripId)],
+        next_steps: (await reminderTablesExist(ctx.env.DB))
+          ? [nextStep.seeReminders(tripId, "See reminder plan"), nextStep.previewIssue(tripId), nextStep.quoteSplit(tripId), nextStep.checkOrders(tripId)]
+          : [nextStep.previewIssue(tripId, "Preview a simulated issue"), nextStep.quoteSplit(tripId), nextStep.checkOrders(tripId)],
         end: null,
       }
     : { fact: "This sample trip was already imported. Nothing was changed.", next_steps: [nextStep.resume(tripId)], end: null };

@@ -105,9 +105,28 @@ async function runTool(action: CardAction, happened: string): Promise<void> {
   }
 }
 
+/** The card cannot reach a calendar, or any other tool on the host. It can only speak up in the chat. */
+async function askChat(text: string): Promise<void> {
+  const said = "Sent to the chat. Reminders are not set until the chat reports the calendar result.";
+  const sayIt = `Your chat app did not take that from the card. Say "${text}" in the chat instead.`;
+  ui.busy = true;
+  ui.notice = null;
+  paint();
+  try {
+    const res = app.getHostCapabilities()?.message ? await app.sendMessage({ role: "user", content: [{ type: "text", text }] }) : { isError: true };
+    ui.notice = res.isError ? sayIt : said;
+  } catch {
+    ui.notice = sayIt;
+  } finally {
+    ui.busy = false;
+    paint();
+  }
+}
+
 const actions = {
   // Pressing the button is the consent for that step. The server still checks every input.
-  run: (action: CardAction) => void runTool(action, `The person pressed "${action.label}" on the CozyTrip card. Do not ask them to confirm this step again.`),
+  run: (action: CardAction) =>
+    void (action.message ? askChat(action.message) : runTool(action, `The person pressed "${action.label}" on the CozyTrip card. Do not ask them to confirm this step again.`)),
   openCheckout: async (key: string, url: string) => {
     const manual = () => {
       ui.checkouts[key] = { ...ui.checkouts[key], manualLink: url };

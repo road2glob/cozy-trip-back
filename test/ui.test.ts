@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cardFor, formatLocal, minutesLeft, quoteStage, type CardAction } from "../ui/views";
 import * as getStatus from "../src/tools/getStatus";
 import * as importOrders from "../src/tools/importOrders";
 import * as detectImpact from "../src/tools/detectImpact";
 import * as planOptions from "../src/tools/planOptions";
+import * as planReminders from "../src/tools/planReminders";
 import * as quoteService from "../src/tools/quoteService";
 import * as createServicePayment from "../src/tools/createServicePayment";
 import * as verifyPayment from "../src/tools/verifyPayment";
@@ -13,6 +14,10 @@ import { buildCardHtml } from "../scripts/build-ui.mjs";
 import { testEnv, toolCtx } from "./helpers/env";
 
 describe("card views from real tool results", () => {
+  // A fixed first-import day: the sample starts seven days later.
+  beforeEach(() => vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-11-01T21:00:00Z") }));
+  afterEach(() => vi.useRealTimers());
+
   it("walks empty -> trip -> impact -> options -> quote -> payment -> delivery -> status, pressing the server's own buttons", async () => {
     const { env } = testEnv();
     const ctx = toolCtx(env);
@@ -39,7 +44,16 @@ describe("card views from real tool results", () => {
     const press = async <A>(mod: { run(c: typeof ctx, a: A): Promise<{ structuredContent: Record<string, unknown> }> }, action: CardAction) =>
       cardFor((await mod.run(ctx, action.args as A)).structuredContent);
 
-    const preview = await press(detectImpact, trip.actions[0]);
+    // After import the first offer is the reminder plan, which is free and changes nothing.
+    expect(trip.actions.map((a) => a.label)).toEqual(["See reminder plan"]);
+    const plan = await press(planReminders, trip.actions[0]);
+    if (plan.kind !== "reminder_plan") throw new Error(`expected reminder_plan, got ${plan.kind}`);
+    expect(plan.rows).toHaveLength(4);
+    expect(plan.actions[0]).toMatchObject({ label: "Add to my calendar" });
+    expect(plan.actions[0].message).toContain("I agree");
+
+    // Issue handling is a separate entry, reached from the conversation.
+    const preview = cardFor((await detectImpact.run(ctx, { trip_id: trip.tripId })).structuredContent);
     if (preview.kind !== "impact") throw new Error(`expected impact, got ${preview.kind}`);
     expect(preview.preview).toBe(true);
     expect(preview.rows.map((r) => `${r.label}:${r.statusLabel}`)).toEqual([
@@ -95,6 +109,7 @@ describe("card views from real tool results", () => {
     ]);
     expect(status.runs[0].chargeOutcome).toBeNull();
     expect(status.actions[0]).toMatchObject({ label: "Check again", tool: "verify_payment" });
+    expect(status.reminders).toBeNull();
   });
 
   it("shows tool errors as an error card", async () => {

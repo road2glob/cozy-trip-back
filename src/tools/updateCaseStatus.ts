@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { getReceipt } from "../paymentService";
+import { getTripDetail } from "../domain/trips";
+import { hasStaleReminder } from "../domain/reminders";
 import { serviceOrderByRun } from "../domain/serviceOrders";
 import { localCode, validCode, operation } from "../domain/operations";
 import { fail, type ToolContext } from "./common";
-import { guided, reportCaseStep, type Guidance } from "./guidance";
+import { guided, nextStep, reportCaseStep, type Guidance } from "./guidance";
 
 const CASE_LABEL: Record<string, string> = {
   submitted_by_user: "Sent by me",
@@ -11,13 +13,20 @@ const CASE_LABEL: Record<string, string> = {
   merchant_responded: "Merchant replied",
 };
 
-function recordedGuidance(tripId: string, runId: string, state: string): Guidance {
+function recordedGuidance(tripId: string, runId: string, state: string, staleReminder = false): Guidance {
   const report = reportCaseStep(tripId, runId, state);
+  const steps = [...(report ? [report] : []), ...(staleReminder ? [nextStep.removeStaleReminder(tripId)] : [])];
   return {
     fact: `Recorded from the person's own report: "${CASE_LABEL[state] ?? state}". This covers the whole service order. CozyTrip contacted no one.`,
-    next_steps: report ? [report] : [],
-    end: report ? null : "This follow-up record is complete. It is still the person's own report.",
+    next_steps: steps,
+    end: steps.length ? null : "This follow-up record is complete. It is still the person's own report.",
   };
+}
+
+/** A reply from the merchant ends the follow-up reminder */
+async function staleAfter(ctx: ToolContext, tripId: string): Promise<boolean> {
+  const d = await getTripDetail(ctx.env.DB, ctx.userId, tripId);
+  return d ? hasStaleReminder(d, ctx.env.DB, ctx.userId) : false;
 }
 
 export const name = "update_case_status";
@@ -199,7 +208,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         report: args.note ?? null,
         evidence: args.evidence ?? null,
       },
-      recordedGuidance(args.trip_id, args.run_id, args.status),
+      recordedGuidance(args.trip_id, args.run_id, args.status, await staleAfter(ctx, args.trip_id)),
     );
   });
 }

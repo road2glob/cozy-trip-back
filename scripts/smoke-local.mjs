@@ -44,12 +44,12 @@ check(
 
 const tools = (await rpc("tools/list", {})).result.tools;
 const names = tools.map((t) => t.name).sort();
-// update_case_status appears only after a paid, verified delivery
+// update_case_status appears only after a paid, verified delivery. Reminder tools need migration 0003.
 const EXPECTED_TOOLS = [
-  "create_service_payment", "create_split_payments", "detect_impact", "get_status", "import_orders", "plan_options",
-  "quote_service", "quote_split", "reconcile_trip", "split_status", "verify_payment",
+  "create_service_payment", "create_split_payments", "detect_impact", "get_status", "import_orders", "plan_options", "plan_reminders",
+  "quote_service", "quote_split", "reconcile_trip", "record_reminder_results", "split_status", "verify_payment",
 ];
-check("the eleven tools for a new user", JSON.stringify(names) === JSON.stringify(EXPECTED_TOOLS), names.join(", "));
+check("the thirteen tools for a new user", JSON.stringify(names) === JSON.stringify(EXPECTED_TOOLS), names.join(", "));
 
 // MCP Apps card: the tools it has views for point at the one ui:// resource (self-contained HTML)
 const CARD_URI = "ui://cozytrip/card.html";
@@ -86,6 +86,18 @@ const imp2 = await call("import_orders", { mode: "sample" });
 const tripId = imp1.structuredContent.trip_id;
 check("sample import: demo_event armed", imp1.structuredContent.demo_event === "armed", tripId);
 check("second import returns the same trip_id", imp2.structuredContent.trip_id === tripId);
+check("new sample starts in the future and keeps its dates", imp1.structuredContent.start_date === imp2.structuredContent.start_date && imp1.structuredContent.start_date > new Date().toISOString().slice(0, 10));
+
+const plan = await call("plan_reminders", { trip_id: tripId });
+check("reminder plan: labeled Demo, future, nothing written", plan.structuredContent.reminders.length >= 4 && plan.structuredContent.reminders.every((r) => r.title.startsWith("CozyTrip Demo / 样本行程") && Date.parse(r.start_utc) > Date.now()) && !("writes" in plan.structuredContent));
+const early2 = await call("record_reminder_results", { trip_id: tripId, results: [{ key: "before-departure-3d", outcome: "created", external_event_id: "evt_smoke" }] });
+check("no calendar result accepted before agreement", early2.structuredContent?.error?.code === "confirmation_required");
+const agreed = await call("plan_reminders", { trip_id: tripId, confirmation_code: plan.structuredContent.confirmation_code });
+check("agreeing returns the writes for the host", agreed.structuredContent.confirmed === true && agreed.structuredContent.writes.length === plan.structuredContent.reminders.length && agreed.structuredContent.writes.every((w) => w.op === "create"));
+const recorded = await call("record_reminder_results", { trip_id: tripId, results: [{ key: agreed.structuredContent.writes[0].key, outcome: "created", external_event_id: "evt_smoke" }] });
+check("a reported write is recorded as host-reported", recorded.structuredContent.provenance === "host-reported" && recorded.structuredContent.summary.set === 1);
+const replan = await call("plan_reminders", { trip_id: tripId });
+check("a retry skips what is already written", replan.structuredContent.reminders[0].state === "written" && replan.structuredContent.reminders.slice(1).every((r) => r.state === "planned"));
 check("still no runs", (await call("get_status")).structuredContent.run_count === 0);
 
 // A quote needs a confirmed impact: preview (nothing changes), then confirm with the local code.

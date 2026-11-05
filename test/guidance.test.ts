@@ -102,6 +102,8 @@ describe("empty ledger and first import", () => {
     expect(tools(r)).not.toContain("create_service_payment");
     expect(tools(r)).not.toContain("import_orders");
     expect(text(r)).not.toMatch(/armed/i);
+    expect(tools(r)[0]).toBe("plan_reminders");
+    expect(buttons(r)).toEqual(["See reminder plan"]);
   });
 
   it("a repeat import resumes the existing trip instead of restarting", async () => {
@@ -124,6 +126,8 @@ describe("resuming from get_status", () => {
     expect(tools(r)).not.toContain("quote_service");
     expect(tools(r)).not.toContain("create_service_payment");
     expect(tools(r)).toContain("quote_split");
+    expect(tools(r)[0]).toBe("plan_reminders");
+    expect(buttons(r)).toEqual(["See reminder plan"]);
   });
 
   it("an unpaid order resumes at the same order, with a check as the main action", async () => {

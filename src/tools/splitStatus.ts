@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getTripDetail } from "../domain/trips";
+import { hasStaleReminder } from "../domain/reminders";
 import { splitStatus } from "../domain/settlements";
 import { formatUsd } from "../domain/money";
 import { operation } from "../domain/operations";
@@ -16,8 +17,8 @@ export const annotations = {
   idempotentHint: true,
 };
 export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
-  if (!(await getTripDetail(ctx.env.DB, ctx.userId, args.trip_id)))
-    return fail("not_found", "Import the trip first.");
+  const d = await getTripDetail(ctx.env.DB, ctx.userId, args.trip_id);
+  if (!d) return fail("not_found", "Import the trip first.");
   return operation(ctx, "split:" + args.trip_id, async () => {
     const payments = await splitStatus(ctx, args.trip_id, true);
     return guided(
@@ -37,7 +38,7 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>) {
         disclaimer: SPLIT_NOTICE,
         payee_notice: PAYEE_NOTICE,
       },
-      sharesGuidance(args.trip_id, payments),
+      sharesGuidance(args.trip_id, payments, await hasStaleReminder(d, ctx.env.DB, ctx.userId)),
     );
   });
 }

@@ -69,7 +69,19 @@ PayPal transactions, once approved and captured, are real **Sandbox** transactio
 
 `get_status`, `import_orders`, `reconcile_trip`, `detect_impact`, `plan_options`, `quote_service`, `create_service_payment`, `verify_payment`, `quote_split`, `create_split_payments`, `split_status`.
 
-`update_case_status` appears for a user only after a paid verified delivery. Calling it earlier returns `delivery_required`. No orders means only the import entry; no confirmed issue means no service-purchase code; no quote/confirmation means no pay URL; zero-due and captured members have no payment entry.
+`update_case_status` appears for a user only after a paid verified delivery. Calling it earlier returns `delivery_required`. `plan_reminders` and `record_reminder_results` appear once migration `0003_reminders.sql` has been applied. No orders means only the import entry; no confirmed issue means no service-purchase code; no quote/confirmation means no pay URL; zero-due and captured members have no payment entry.
+
+### Demo reminders
+
+CozyTrip plans the reminders and remembers what was written. It holds no calendar access: the host's own calendar tool does the writing, and only after the person agrees.
+
+1. `plan_reminders` with `trip_id` shows the whole plan: what, when, how far ahead, trip-local time with Beijing time beside it, which calendar, and the `CozyTrip Demo / 样本行程` label on every entry. It can be adjusted with `notify_time`, `leave_home_at`, `follow_up_at`, `exclude` and `calendar_name`. Nothing is scheduled.
+2. Once the person agrees, the same tool with the returned `confirmation_code` returns `writes`. Each is a `create`, an `update` or a `remove`, and the last two carry the recorded event ID. If the host has no calendar tool, the plan stays a plan and the agent says the reminders are not set.
+3. After the host's calendar tool has run, `record_reminder_results` records the real outcome per reminder, with the event ID the tool returned. Failures are reported as failed. Results are labeled `host-reported`, since CozyTrip cannot see the calendar itself.
+
+Retries update by recorded ID and never add a second entry. Only entries reported this way are ever touched. A reminder about unpaid shares goes only to the current user's calendar and is flagged for removal once they are paid; a follow-up reminder ends the same way when the person reports a merchant reply.
+
+The sample's dates are worked out once, at first import (flight seven days later, in the trip's time zone), and stored. Re-reading, re-importing or paying never moves them, and trips imported earlier keep their dates.
 
 ### Agent guidance
 
@@ -110,6 +122,8 @@ Hosts that support MCP Apps (Claude, ChatGPT, VS Code and others) also render a 
 | `quote_split` | Three shares, Maya owes USD 0.00 | Confirm split |
 | `create_split_payments`, `split_status` | Each share paid or not; a payment control for each unpaid share | PayPal button for each share, then Check again |
 | `update_case_status` | Your report, for the whole service order | Confirm my report, or none |
+| `plan_reminders` | Demo reminder plan, nothing set yet | Add to my calendar (asks the chat; the card never touches a calendar) |
+| `record_reminder_results` | What the calendar tool reported, per reminder | See reminder plan if any failed, otherwise none |
 
 Buttons go through the host (`tools/call`, `ui/open-link`) and the server checks every input as it does for the model, so the card adds no new way in. The card is built from `ui/` into `src/ui/cardHtml.generated.ts` (inline CSS and JS only; the default MCP Apps CSP allows nothing else): run `npm run build:ui` after editing `ui/`; a test fails if the generated file is stale. To view cards locally, run `npx @modelcontextprotocol/inspector@latest`, add the Streamable HTTP server `http://localhost:8788/mcp` with header `Authorization: Bearer <token>`, connect and open **Apps**.
 

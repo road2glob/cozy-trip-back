@@ -15,6 +15,8 @@ import * as split from "../src/tools/quoteSplit";
 import * as createSplit from "../src/tools/createSplitPayments";
 import * as splitCheck from "../src/tools/splitStatus";
 import * as updateCase from "../src/tools/updateCaseStatus";
+import * as plan from "../src/tools/planReminders";
+import * as recordResults from "../src/tools/recordReminderResults";
 import { getRun, getSettlement } from "../src/paymentService";
 import { fixtureWrite } from "../stub/complete";
 import { testEnv, toolCtx } from "./helpers/env";
@@ -342,6 +344,92 @@ describe("status", () => {
     render(root, view, actions, ui());
     expect(root.textContent).toContain("Refund required. This is not a completed refund.");
     expect(root.textContent).not.toMatch(/\brefunded\b/i);
+  });
+});
+
+describe("reminders", () => {
+  const planResult = (over: Record<string, unknown> = {}) => ({
+    reminder_plan: true,
+    label: "CozyTrip Demo / 样本行程",
+    timezone: "America/Los_Angeles",
+    calendar_name: null,
+    confirmed: false,
+    reminders: [{ key: "a", what: "Sample Air 210 departs in 3 days", title: "x", lead: "3 days before departure", display_when: "Nov 5, 09:00", display_beijing: "Nov 6, 01:00", state: "planned" }],
+    removals: [],
+    notes: ["The sample has no refund or change deadline, so no deadline reminder is planned."],
+    guidance: { fact: "x", end: null, next_steps: [{ when: "w", tool: "plan_reminders", args: { trip_id: "t", confirmation_code: "c" }, needs_confirmation: true, card_action: "Add to my calendar", card_message: "I agree" }] },
+    ...over,
+  });
+  const showPlan = (over?: Record<string, unknown>) => show({ structuredContent: planResult(over) });
+
+  it("the real plan shows the Demo label, both clocks and that it is only a plan", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const { text, buttons } = show(await plan.run(ctx, { trip_id }));
+    expect(text).toContain("CozyTrip Demo");
+    expect(text).toContain("A plan only. Nothing is in your calendar yet.");
+    expect(text).toMatch(/Beijing/);
+    expect(text).toContain("America/Los_Angeles");
+    expect(text).toContain("Calendar: not chosen yet.");
+    expect(text).not.toMatch(INTERNAL);
+    expect(buttons).toEqual(["Add to my calendar"]);
+  });
+
+  it("pressing the button asks the chat, and never calls a tool or a calendar itself", () => {
+    showPlan();
+    pressFirst();
+    expect(pressed[0]).toMatchObject({ label: "Add to my calendar", message: "I agree" });
+  });
+
+  it("after agreement it says nothing is set yet and offers no second press", () => {
+    const { text, buttons } = showPlan({ confirmed: true, guidance: { fact: "x", end: null, next_steps: [{ when: "w", tool: "record_reminder_results", args: {}, needs_confirmation: false }] } });
+    expect(text).toContain("Nothing is set until your chat app reports the calendar result.");
+    expect(buttons).toEqual([]);
+  });
+
+  it("shows what is in the calendar and what is not", () => {
+    const row = (state: string) => ({ key: state, what: state, lead: "l", display_when: "w", display_beijing: "b", state });
+    const { text } = showPlan({ reminders: [row("written"), row("failed"), row("needs_update"), row("planned")] });
+    expect(text).toContain("1 in your calendar, 3 not set.");
+    expect(text).toContain("In your calendar");
+    expect(text).toContain("Not set");
+    expect(text).toContain("Needs updating");
+  });
+
+  it("a removal is listed as such, and an old trip says it has nothing left", () => {
+    expect(showPlan({ reminders: [], removals: [{ key: "k", title: "Old entry" }] }).text).toContain("To remove from your calendar: Old entry");
+    const none = showPlan({ reminders: [], guidance: { fact: "x", end: "done", next_steps: [] } });
+    expect(none.text).toContain("No reminder times are left on this trip.");
+    expect(none.buttons).toEqual([]);
+  });
+
+  it("the result separates set from failed and makes no promise of watching the calendar", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    const preview = sc(await plan.run(ctx, { trip_id }));
+    const agreed = sc(await plan.run(ctx, { trip_id, confirmation_code: preview.confirmation_code }));
+    const keys = agreed.writes.map((w: any) => w.key);
+    const r = await recordResults.run(ctx, { trip_id, results: [{ key: keys[0], outcome: "created", external_event_id: "evt_1" }, { key: keys[1], outcome: "failed", detail: "Read-only calendar" }] });
+    const { text, buttons } = show(r);
+    expect(text).toContain("As reported by your chat app's calendar tool.");
+    expect(text).toContain("Set");
+    expect(text).toContain("Not set");
+    expect(text).toContain("Read-only calendar");
+    expect(text).toContain("CozyTrip does not watch your calendar.");
+    expect(buttons).toEqual(["See reminder plan"]);
+  });
+
+  it("status counts only reported entries", async () => {
+    const { env } = testEnv();
+    const ctx = toolCtx(env);
+    const trip_id = await imported(ctx);
+    expect(show(await status.run(ctx, { trip_id })).text).not.toContain("Demo reminders");
+    const preview = sc(await plan.run(ctx, { trip_id }));
+    const agreed = sc(await plan.run(ctx, { trip_id, confirmation_code: preview.confirmation_code }));
+    await recordResults.run(ctx, { trip_id, results: [{ key: agreed.writes[0].key, outcome: "created", external_event_id: "evt_1" }] });
+    expect(show(await status.run(ctx, { trip_id })).text).toContain("1 in your calendar");
   });
 });
 

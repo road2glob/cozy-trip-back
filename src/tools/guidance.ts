@@ -2,6 +2,7 @@
 // the allowed next steps and, when nothing remains, that the flow has ended. Additive: existing fields
 // stay as they are. The steps go into the text too, because some hosts only pass text to the model.
 import { formatUsd } from "../domain/money";
+import type { ReminderSummary } from "../domain/reminders";
 import type { TripDetail } from "../domain/trips";
 import { ok, type ToolResult } from "./common";
 
@@ -15,6 +16,11 @@ export interface NextStep {
   needs_confirmation: boolean;
   /** Button text if the card may offer this step. Steps without it stay in the conversation. */
   card_action?: string;
+  /**
+   * Only the host can reach the person's calendar, so this button sends the person's words to the chat
+   * instead of calling a tool.
+   */
+  card_message?: string;
 }
 
 export interface Guidance {
@@ -64,6 +70,25 @@ export function ensureGuidance(result: ToolResult): ToolResult {
 export const NO_VERIFIED_CAPTURE = "No verified capture yet.";
 
 export const nextStep = {
+  seeReminders: (tripId: string, card_action?: string): NextStep => ({
+    when: "the person wants to see the trip's key dates and reminders. Offer this first once a trip is organized",
+    tool: "plan_reminders",
+    args: { trip_id: tripId },
+    needs_confirmation: false,
+    ...(card_action ? { card_action } : {}),
+  }),
+  adjustReminders: (tripId: string): NextStep => ({
+    when: "the person wants other times, fewer reminders or a certain calendar: add notify_time, leave_home_at, follow_up_at, exclude or calendar_name",
+    tool: "plan_reminders",
+    args: { trip_id: tripId },
+    needs_confirmation: false,
+  }),
+  removeStaleReminder: (tripId: string): NextStep => ({
+    when: "a CozyTrip Demo reminder in the person's calendar no longer applies and should be removed",
+    tool: "plan_reminders",
+    args: { trip_id: tripId },
+    needs_confirmation: false,
+  }),
   importSample: (): NextStep => ({
     when: "the person chooses to try the fictional sample",
     tool: "import_orders",
@@ -222,13 +247,14 @@ export function sharesFact(shares: ShareFact[]): string {
   return shares.map((s) => `${s.name ?? "Member"}'s share ${s.display_amount}: ${SHARE_STATE[s.state] ?? s.state}.`).join(" ");
 }
 
-export function sharesGuidance(tripId: string, shares: ShareFact[]): Guidance {
+export function sharesGuidance(tripId: string, shares: ShareFact[], staleReminder = false): Guidance {
   if (shares.length === 0) {
     return { fact: "No share payments exist yet.", next_steps: [nextStep.quoteSplit(tripId, "Review the split")], end: null };
   }
   const fact = `${sharesFact(shares)} Maya owes USD 0.00.`;
   if (shares.some((s) => s.prompt)) return { fact, next_steps: [nextStep.checkShares(tripId)], end: null };
-  return { fact, next_steps: [], end: "No share is waiting for payment, so no payment entry remains." };
+  const done = "No share is waiting for payment, so no payment entry remains.";
+  return staleReminder ? { fact: `${fact} ${done}`, next_steps: [nextStep.removeStaleReminder(tripId)], end: null } : { fact, next_steps: [], end: done };
 }
 
 export interface RunFact {
@@ -243,6 +269,8 @@ interface TripFacts {
   /** case_progress state; set only after a paid, verified delivery */
   trackingState: string | null;
   shares: ShareFact[];
+  /** null until the reminder migration has been applied, and then the plan is not offered */
+  reminders: ReminderSummary | null;
 }
 
 function runPosition(tripId: string, run: RunFact, trackingState: string | null): { fact: string; steps: NextStep[] } {
@@ -277,7 +305,7 @@ function runPosition(tripId: string, run: RunFact, trackingState: string | null)
 }
 
 /** Reads like the trip itself: what is true now and only the steps that make sense from here */
-export function tripGuidance({ detail: d, run, trackingState, shares }: TripFacts): Guidance {
+export function tripGuidance({ detail: d, run, trackingState, shares, reminders }: TripFacts): Guidance {
   const tripId = d.trip.trip_id;
   const facts = [`${d.trip.title}: ${d.bookings.length} bookings, ${d.participants.length} travelers, ${formatUsd(d.totalMinor)}. Simulated travel data.`];
   const steps: NextStep[] = [];
@@ -295,10 +323,14 @@ export function tripGuidance({ detail: d, run, trackingState, shares }: TripFact
   if (shares.length > 0) {
     facts.push(sharesFact(shares));
     if (shares.some((s) => s.prompt)) steps.push(nextStep.checkShares(tripId, "Check shares"));
-  } else {
-    steps.push(nextStep.quoteSplit(tripId));
   }
-  if (!run && !issueConfirmed) steps.push(nextStep.previewIssue(tripId, "Preview a simulated issue"), nextStep.checkOrders(tripId));
+  if (reminders) {
+    if (reminders.written) facts.push(`${reminders.written} Demo reminders are in the calendar, as its tool reported.`);
+    if (reminders.failed) facts.push(`${reminders.failed} reminders failed and are not set.`);
+    steps.push(nextStep.seeReminders(tripId, "See reminder plan"));
+  }
+  if (shares.length === 0) steps.push(nextStep.quoteSplit(tripId));
+  if (!run && !issueConfirmed) steps.push(nextStep.previewIssue(tripId, reminders ? undefined : "Preview a simulated issue"), nextStep.checkOrders(tripId));
 
   return { fact: facts.join(" "), next_steps: steps, end: steps.length ? null : "Nothing is waiting on this trip." };
 }

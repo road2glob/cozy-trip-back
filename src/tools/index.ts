@@ -1,4 +1,6 @@
 import * as splitStatus from './splitStatus';
+import * as planReminders from "./planReminders";
+import * as recordReminderResults from "./recordReminderResults";
 import * as updateCaseStatus from "./updateCaseStatus";
 import * as createSplitPayments from "./createSplitPayments";
 import * as quoteSplit from "./quoteSplit";
@@ -70,7 +72,7 @@ function register<S extends StandardSchemaWithJSON>(server: McpServer, env: Env,
 }
 
 // No prompts. Every tool shows the MCP Apps card (one ui:// resource, src/mcp/ui.ts); hosts without it use the text.
-export function registerTools(server: McpServer, env: Env, caseAvailable=false): void {
+export function registerTools(server: McpServer, env: Env, caseAvailable=false, remindersAvailable=false): void {
   register(server, env, getStatus, true);
   register(server, env, importOrders, true);
   register(server, env, quoteService, true);
@@ -83,5 +85,9 @@ export function registerTools(server: McpServer, env: Env, caseAvailable=false):
   register(server, env, createSplitPayments, true);
   register(server, env, splitStatus, true);
   if(caseAvailable) register(server, env, updateCaseStatus, true);
+  if (remindersAvailable) {
+    register(server, env, planReminders, true);
+    register(server, env, recordReminderResults, true);
+  }
 
 }

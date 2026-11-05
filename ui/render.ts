@@ -156,6 +156,8 @@ function openButton(key: string, url: string, c: CheckoutUi | undefined, label: 
   return null;
 }
 
+const REMINDER_STATE: Record<string, string> = { written: "In your calendar", needs_update: "Needs updating", failed: "Not set" };
+
 const PENDING: Record<string, { title: string; body: string }> = {
   unconfirmed: { title: "No verified capture yet.", body: "No drafts until PayPal Sandbox shows the capture and it passes verification." },
   checking: { title: "Checking this order", body: "No new payment is needed. Drafts appear once the check passes." },
@@ -386,6 +388,76 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
       ];
       break;
     }
+    case "reminder_plan": {
+      const set = view.rows.filter((r) => r.state === "written").length;
+      const left = view.rows.length - set;
+      body = [
+        h("span", { class: "chip chip-sim" }, view.label),
+        h("h2", {}, "Reminder plan"),
+        h(
+          "p",
+          { class: "muted" },
+          view.confirmed
+            ? "You agreed to this plan. Nothing is set until your chat app reports the calendar result."
+            : view.rows.length === 0 && view.removals.length === 0
+              ? "No reminder times are left on this trip."
+              : set
+                ? `${set} in your calendar, ${left} not set.`
+                : "A plan only. Nothing is in your calendar yet.",
+        ),
+        view.rows.length
+          ? h(
+              "ul",
+              { class: "list" },
+              view.rows.map((r) =>
+                h(
+                  "li",
+                  { class: "item" },
+                  h(
+                    "div",
+                    { class: "item-text" },
+                    h("div", { class: "row between" }, h("span", { class: "strong" }, r.what), REMINDER_STATE[r.state] ? chip(REMINDER_STATE[r.state], r.state === "written" ? "accent" : "warning") : null),
+                    h("span", { class: "small" }, `${r.when} · Beijing ${r.beijing}`),
+                    h("span", { class: "muted small" }, r.lead),
+                  ),
+                ),
+              ),
+            )
+          : null,
+        view.removals.map((title) => h("p", { class: "small" }, `To remove from your calendar: ${title}`)),
+        h("p", { class: "muted small" }, `Times are ${view.timezone}. Calendar: ${view.calendarName || "not chosen yet"}.`),
+        view.notes.map((n) => h("p", { class: "muted small" }, n)),
+        actionRow(view.actions, actions, ui),
+        view.actions.length ? h("p", { class: "muted small" }, "Want other times or fewer reminders? Say so in the chat.") : null,
+      ];
+      break;
+    }
+    case "reminder_results":
+      body = [
+        h("h2", {}, "Calendar result"),
+        h("p", { class: "muted" }, "As reported by your chat app's calendar tool."),
+        h(
+          "ul",
+          { class: "list" },
+          view.rows.map((r) =>
+            h(
+              "li",
+              { class: "item" },
+              h(
+                "div",
+                { class: "item-text" },
+                h("div", { class: "row between" }, h("span", { class: "strong" }, r.what), chip(r.outcome, r.failed ? "danger" : "accent", r.failed ? undefined : "check")),
+                r.when ? h("span", { class: "small" }, `${r.when} · Beijing ${r.beijing}`) : null,
+                r.detail ? h("span", { class: "muted small" }, r.detail) : null,
+              ),
+            ),
+          ),
+        ),
+        view.rejected ? h("p", { class: "small" }, `${view.rejected} could not be recorded and may not be set.`) : null,
+        actionRow(view.actions, actions, ui),
+        h("p", { class: "muted small" }, "CozyTrip does not watch your calendar. To continue later, ask CozyTrip in your chat."),
+      ];
+      break;
     case "case_preview":
       body = [
         h("h2", {}, `Record: ${view.proposed}?`),
@@ -411,12 +483,19 @@ export function render(root: HTMLElement, view: CardView, actions: Actions, ui: 
           h("h2", {}, t.title),
           h("p", { class: "muted" }, `${t.dates} · ${t.bookings} bookings`),
         ]),
-        view.runs.length || view.payments.length || view.followUp
+        view.runs.length || view.payments.length || view.followUp || view.reminders
           ? h(
               "ul",
               { class: "list" },
               view.runs.length ? h("li", { class: "item" }, h("div", { class: "item-text" }, h("span", { class: "muted small" }, "After-sales drafts"), h("span", {}, view.runs[view.runs.length - 1].sentence))) : null,
               view.followUp ? h("li", { class: "item" }, h("div", { class: "item-text" }, h("span", { class: "muted small" }, "Follow-up"), h("span", {}, `${view.followUp}${view.followUp === "Prepared" ? "" : " (your report)"}`))) : null,
+              view.reminders
+                ? h(
+                    "li",
+                    { class: "item" },
+                    h("div", { class: "item-text" }, h("span", { class: "muted small" }, "Demo reminders"), h("span", {}, [view.reminders.written ? `${view.reminders.written} in your calendar` : "", view.reminders.failed ? `${view.reminders.failed} not set` : ""].filter(Boolean).join(" · "))),
+                  )
+                : null,
               view.payments.length
                 ? h(
                     "li",

@@ -5,6 +5,8 @@ import type { PayPalCallbacks, PayPalSdk } from "../ui/paypal";
 const host = vi.hoisted(() => ({
   app: undefined as { ontoolresult?: (r: { structuredContent: Record<string, unknown> }) => void } | undefined,
   links: true,
+  messages: true,
+  send: vi.fn(),
   call: vi.fn(),
   open: vi.fn(),
 }));
@@ -15,7 +17,8 @@ vi.mock("@modelcontextprotocol/ext-apps", () => ({
     constructor() { host.app = this; }
     async connect() {}
     getHostContext() { return undefined; }
-    getHostCapabilities() { return host.links ? { openLinks: {} } : {}; }
+    getHostCapabilities() { return { ...(host.links ? { openLinks: {} } : {}), ...(host.messages ? { message: {} } : {}) }; }
+    sendMessage = host.send;
     callServerTool = host.call;
     openLink = host.open;
     async updateModelContext() {}
@@ -48,6 +51,8 @@ async function boot(sc = order) {
 beforeEach(() => {
   vi.resetModules();
   host.links = true;
+  host.messages = true;
+  host.send.mockReset().mockResolvedValue({});
   host.app = undefined;
   host.call.mockReset().mockResolvedValue({ content: [{ type: "text", text: "No verified capture yet." }], structuredContent: { trip_id: "trip_test", runId: "run_test", paid: false, output: null } });
   host.open.mockReset().mockResolvedValue({});
@@ -226,6 +231,38 @@ describe("PayPal service card through the existing App host bridge", () => {
     expect(createInstance).not.toHaveBeenCalled();
     expect(document.querySelector("paypal-button")).toBeNull();
     expect(document.body.textContent).toContain("Open PayPal Sandbox");
+  });
+});
+
+describe("the reminder plan card", () => {
+  const plan = {
+    reminder_plan: true, label: "CozyTrip Demo", timezone: "America/Los_Angeles", calendar_name: null, confirmed: false,
+    reminders: [{ key: "a", what: "Departs in 3 days", lead: "3 days before", display_when: "Nov 5, 09:00", display_beijing: "Nov 6, 01:00", state: "planned" }],
+    removals: [], notes: [],
+    guidance: { fact: "x", end: null, next_steps: [{ when: "w", tool: "plan_reminders", args: { trip_id: "t", confirmation_code: "c" }, needs_confirmation: true, card_action: "Add to my calendar", card_message: "I agree to this CozyTrip demo reminder plan. Please add it to my calendar." }] },
+  };
+
+  it("asks through the chat, calls no tool, and says reminders are not set yet", async () => {
+    await boot(plan as never);
+    buttons()[0].click();
+    await flush();
+    expect(host.send).toHaveBeenCalledWith({ role: "user", content: [{ type: "text", text: "I agree to this CozyTrip demo reminder plan. Please add it to my calendar." }] });
+    expect(host.call).not.toHaveBeenCalled();
+    expect(host.open).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Reminders are not set until the chat reports the calendar result.");
+    expect(createInstance).not.toHaveBeenCalled();
+  });
+
+  it.each(["no capability", "refused", "throws"])("when the chat cannot take it (%s), it says what to type and claims nothing", async (mode) => {
+    if (mode === "no capability") host.messages = false;
+    if (mode === "refused") host.send.mockResolvedValue({ isError: true });
+    if (mode === "throws") host.send.mockRejectedValue(new Error("no"));
+    await boot(plan as never);
+    buttons()[0].click();
+    await flush();
+    expect(document.body.textContent).toContain('Say "I agree to this CozyTrip demo reminder plan. Please add it to my calendar." in the chat instead.');
+    expect(document.body.textContent).not.toContain("Sent to the chat");
+    expect(host.call).not.toHaveBeenCalled();
   });
 });
 

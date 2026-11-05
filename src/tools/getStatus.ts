@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getTripDetail, listTripIds, type TripDetail } from "../domain/trips";
 import { listServiceOrders, updateServiceOrder } from "../domain/serviceOrders";
 import { isTerminal } from "../domain/runStates";
+import { readEvents, reminderTablesExist, summarize } from "../domain/reminders";
 import { getReceipt, getRun, PaymentServiceError } from "../paymentService";
 import { SIMULATED_NOTICE, STUB_NOTICE, fail, failFromService, isStub, type ToolContext, type ToolResult } from "./common";
 import { guided, nextStep, tripGuidance } from "./guidance";
@@ -91,12 +92,14 @@ export async function run(ctx: ToolContext, args: z.infer<typeof inputSchema>): 
   // One sample trip per user today; several trips would each need their own guidance.
   const first = details[0];
   const tripId = first.trip.trip_id;
+  const reminders = (await reminderTablesExist(env.DB)) ? summarize(await readEvents(env.DB, userId, tripId)) : null;
   const latest = runs.filter((r) => r.trip_id === tripId).at(-1);
   const guidance = tripGuidance({
     detail: first,
     run: latest ? { runId: String(latest.runId), state: String(latest.state), ...(typeof latest.chargeOutcome === "string" ? { chargeOutcome: latest.chargeOutcome } : {}) } : null,
     trackingState: caseViews.find((c) => c.runId === latest?.runId)?.trackingState ?? null,
     shares: payments.filter((p) => p.trip_id === tripId),
+    reminders,
   });
-  return guided(lines.join("\n"), structured, guidance);
+  return guided(lines.join("\n"), { ...structured, ...(reminders ? { reminders } : {}) }, guidance);
 }

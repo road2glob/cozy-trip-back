@@ -16,14 +16,24 @@ Judge tokens expire **2026-12-16 00:00 UTC**. Use one per judge; all are scoped 
 - Judge B: `ENJDl_9Z9SqVcrjE5GM9rQCYZp-M238vUjJdh3M3XPo`
 - Judge C: `MDfQ7-lTU2eEuV3XLg-36OLlJOJnxgGXbnAoJ7RYtJA`
 
-Judge A is used for the release pre-payment acceptance check; choose B or C for an untouched empty ledger. No judge payment is performed during release acceptance.
+Judge A is the completed-payment walkthrough. A hosted `get_status` check on **2026-11-06** confirmed a verified service run with a captured USD 9.90 fee, plus captured USD 60 shares for Leo and Ava. Maya owes USD 0. The sample trip is Seattle to San Francisco, November 8–11, 2026. Start with `get_status` and reuse its existing trip and run IDs.
+
+Judge B and C are reserved for the sample-import and new-checkout walkthrough. They were kept unused during release testing. These are shared demo identities, so another judge may have used them since then. Start with `get_status` and continue the ledger it returns.
 <!-- JUDGE_ACCESS_END -->
 
-**Judge Sandbox buyers — Tim must fill these before submission:**
-- Service fee buyer: `<<TIM: judge buyer email/password>>`
-- AA buyer: `<<TIM: second judge buyer email/password>>`
+### View the completed purchase
 
-Use dedicated judge-only Sandbox buyers. The team’s personal test-account credentials are not included. This project uses Sandbox only; do not use a real PayPal account or payment card.
+Connect with Judge A and ask “Show my verified after-sales drafts,” then “Check who paid for the airport pickup.” The host reads the existing service receipt and payment records. This path needs only the MCP token above. Its drafts remain available after the sample travel dates.
+
+For direct tool calls, call `get_status`, then `verify_payment` with its existing `trip_id` and service `runId` as `run_id`. Call `split_status` with the same `trip_id` to read the captured shares. The expected outcomes are a passed/captured receipt, three prepared drafts, and Leo/Ava paid. Follow-up actions require their own explicit confirmation.
+
+### Try a new Sandbox checkout
+
+Use Judge B or C. New payment approval requires a **PayPal Sandbox Personal buyer account**. This submission supplies the MCP demo tokens above. Team-issued Sandbox buyer credentials are currently unavailable in the submission's testing instructions. Use the completed-purchase path above or prepare your own test buyer as follows.
+
+Judges can use a Personal buyer from their own PayPal Developer Dashboard. Open **Testing Tools → Sandbox Accounts**, select an existing Personal account or create one, and use its test email and password in the Sandbox checkout. For a new account, choose **Personal** and a supported Country/Region. PayPal creates a default test balance. Keep the buyer credentials within the PayPal checkout. [PayPal Sandbox account instructions](https://developer.paypal.com/sandbox-testing/accounts)
+
+Both the service fee and AA requests go to the CozyTrip Team Sandbox merchant. The AA demonstration uses merchant settlement orders for Leo and Ava's shares. All checkout amounts are test money. Only the traveler approves a checkout, and the receipt determines its result.
 
 ## Try the sample in chat
 
@@ -31,12 +41,14 @@ After connecting, say “Use CozyTrip to organize my trip.” On an empty accoun
 
 For the calendar demo, choose a writable calendar in the host, review the destinations and local times, and confirm the sample entries. Ask to see the plan again to check the recorded results. If you change calendars, the assistant shows which old entries to remove. After the calendar confirms removal, choose **Continue calendar move** to review and add the entries in the destination.
 
-## Judge path: six steps, about five minutes
+## New-trip walkthrough
 
-1. Connect MCP Inspector to the hosted MCP URL using a judge Bearer token. Call `get_status`: a fresh identity has no trip, payment or case.
+Use Judge B or C for this path and prepare a Sandbox Personal buyer if you want to approve a new checkout. Judge A follows the completed-purchase path above.
+
+1. Connect MCP Inspector or an MCP-enabled chat client to the hosted MCP URL using a judge Bearer token. Call `get_status`. A fresh identity starts with an empty ledger. If a trip is already present, reuse it and its recorded orders.
 2. Call `import_orders` with `{ "mode": "sample" }`, then `reconcile_trip` with its `trip_id`. Four source bookings total USD 1,491.00; the source prepaid pickup is USD 180.
 3. Call `detect_impact` once for a preview. Read the fictional cancellation and affected bookings; call it again only after confirming, with the returned local `confirmation_code`. Then call `plan_options` to review suggestions. Nothing is sent to merchants.
-4. Call `quote_service`, read the USD 9.90 quote, explicitly confirm, then call `create_service_payment` using `trip_id`, `run_id` and the returned code. Open the Sandbox link and use a dedicated judge buyer. The return page is only navigation; it does not deliver materials.
+4. Call `quote_service`, read the USD 9.90 quote, explicitly confirm, then call `create_service_payment` using `trip_id`, `run_id` and the returned code. Open the Sandbox link and approve with your Sandbox Personal buyer. Then return to the chat and ask “Check my payment.”
 5. Call `verify_payment` with the same trip/run. Drafts appear only after the private service returns a receipt with `verificationState: passed` and `chargeOutcome: captured`. Repeating the call reuses the run. Optional: ask `update_case_status` for a preview, then confirm that **you** personally sent the drafts; this records a user report, never a merchant action.
 6. Call `quote_split`, inspect Maya’s USD 0 due and Leo/Ava’s USD 60 each, then explicitly confirm `create_split_payments` with its local code. Two Sandbox links appear; Maya has none. For a short judging session, creating requests is enough. Optional Sandbox payments can be checked with `split_status`; captured members lose their payment prompt.
 
@@ -56,6 +68,18 @@ flowchart LR
 The payment and verification component is **a private hosted service reached via Service Binding**.
 
 All payment calls go through `src/paymentService/`. The public repository contains a deterministic local contract stub, not the private payment engine. CozyTrip holds no PayPal credentials and never calls PayPal directly.
+
+### Source availability and reproduction
+
+| Component | Available source | How to run it |
+|---|---|---|
+| MCP tools, cards, trip ledger, reminders, AI drafting and payment-service client | This repository, MIT | Local setup below or the hosted MCP endpoint |
+| Deterministic payment contract stub | `stub/`, MIT | Default local setup with explicit simulated payment results |
+| PayPal order creation, server capture, webhook verification and receipt engine | Private hosted service | Through the hosted CozyTrip demo |
+
+A clone of this repository can run CozyTrip against the local stub. Reproducing the hosted PayPal transactions also requires the private payment service. The repository alone therefore supports the local simulated flow, while the hosted endpoint supplies the real Sandbox integration.
+
+The hackathon rules require a public, open-source repository containing the source, assets and instructions needed for a functional project. They separately permit a hosted working demo for testing. The private payment dependency is disclosed above. Acceptance of that source boundary remains for the organizer to determine. [Official rules, section 4](https://paypalaihackathon.devpost.com/rules)
 
 ## PayPal and AI
 
@@ -161,4 +185,4 @@ Migrations contain schema only. Remote migrations are performed manually by the 
 
 `src/tools/` MCP tools; `ui/` MCP Apps card source; `src/domain/` deterministic rules, confirmation and case state; `src/paymentService/` outbound payment contract; `stub/` offline fake; `migrations/` schema only; `test/` offline tests; `docs/devpost/` submission draft.
 
-[MIT license](LICENSE). This application is open source. Hosted access must remain available through judging; use the dedicated judge test accounts above.
+[MIT license](LICENSE) for the code in this repository. See the source-availability table for the hosted payment dependency. The published MCP tokens expire after the December 1–15, 2026 judging period. Use Judge A for the completed-payment walkthrough or Judge B/C with the buyer-account requirements above.

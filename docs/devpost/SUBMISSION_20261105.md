@@ -1,5 +1,19 @@
 # CozyTrip — Devpost draft
 
+Access and source-availability correction, 2026-11-06. The current judge entry paths are documented in the repository README. The original implementation narrative below records the November 5 release.
+
+## Judge access
+
+Connect an MCP client to https://mcp.cozytrip.dev/mcp with a published judge token from the README. Judge A has a verified USD 9.90 service receipt and two captured USD 60 shares, confirmed with hosted `get_status` on November 6. Use this identity to view the existing drafts and paid-share status with no new checkout. Start with `get_status` and reuse the returned trip/run IDs.
+
+Judge B and C are reserved for sample onboarding and new orders. Read their current state first because the demo identities are shared. New checkout approval needs a PayPal Sandbox Personal buyer from the judge's own PayPal Developer Dashboard. The submission currently supplies MCP tokens and a walkthrough. Team-issued Sandbox buyer credentials are currently unavailable in the submission's testing instructions. The public README gives this requirement and links to PayPal's account-creation instructions.
+
+## Source availability for judging
+
+The MIT repository contains the MCP application, UI, trip ledger, AI drafting, payment-service client and deterministic local stub. The server-side PayPal order/capture/webhook and receipt engine runs as a private hosted service. Local setup reproduces the simulated contract flow. The hosted endpoint provides the real Sandbox integration. Reproducing that integration from source also requires the private service.
+
+The official rules require a public repository with the source, assets and instructions needed for a functional project, separately from access to a hosted demo. Organizer acceptance of this private-service dependency remains unconfirmed. This disclosure records the available source and testing routes. [Official rules, section 4](https://paypalaihackathon.devpost.com/rules)
+
 ## Inspiration
 
 A disrupted group trip creates several kinds of unfinished work: understanding which bookings are affected, asking merchants about changes, tracking what the traveler actually sent, and settling the original shared expense. A chat assistant should distinguish those tasks and make its next step match the facts and the user's consent.

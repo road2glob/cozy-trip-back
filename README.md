@@ -29,9 +29,9 @@ For direct tool calls, call `get_status`, then `verify_payment` with its existin
 
 ### Try a new Sandbox checkout
 
-Use Judge B or C. New payment approval requires a **PayPal Sandbox Personal buyer account**. This submission supplies the MCP demo tokens above. Team-issued Sandbox buyer credentials are currently unavailable in the submission's testing instructions. Use the completed-purchase path above or prepare your own test buyer as follows.
+Use Judge B or C. New payment approval requires a **PayPal Sandbox Personal buyer account**. A team-supplied buyer email and password are available to judges in the [Devpost submission](https://devpost.com/software/cozytrip)'s private **Testing instructions or credentials** field. Connect using an MCP demo token above, then use the supplied buyer on the PayPal Sandbox checkout page (`www.sandbox.paypal.com`). After approving, return to chat and say “Check my payment.”
 
-Judges can use a Personal buyer from their own PayPal Developer Dashboard. Open **Testing Tools → Sandbox Accounts**, select an existing Personal account or create one, and use its test email and password in the Sandbox checkout. For a new account, choose **Personal** and a supported Country/Region. PayPal creates a default test balance. Keep the buyer credentials within the PayPal checkout. [PayPal Sandbox account instructions](https://developer.paypal.com/sandbox-testing/accounts)
+Judges may alternatively use a Personal buyer from their own PayPal Developer Dashboard. Open **Testing Tools → Sandbox Accounts**, select an existing Personal account or create one, and use its test email and password in the Sandbox checkout. For a new account, choose **Personal** and a supported Country/Region. PayPal creates a default test balance. Keep the buyer credentials within the PayPal checkout. [PayPal Sandbox account instructions](https://developer.paypal.com/sandbox-testing/accounts)
 
 Both the service fee and AA requests go to the CozyTrip Team Sandbox merchant. The AA demonstration uses merchant settlement orders for Leo and Ava's shares. All checkout amounts are test money. Only the traveler approves a checkout, and the receipt determines its result.
 
@@ -43,12 +43,12 @@ For the calendar demo, choose a writable calendar in the host, review the destin
 
 ## New-trip walkthrough
 
-Use Judge B or C for this path and prepare a Sandbox Personal buyer if you want to approve a new checkout. Judge A follows the completed-purchase path above.
+Use Judge B or C for this path. To approve a new checkout, retrieve the supplied Sandbox Personal buyer login from the private Devpost testing instructions, or use your own test buyer. Judge A follows the completed-purchase path above.
 
 1. Connect MCP Inspector or an MCP-enabled chat client to the hosted MCP URL using a judge Bearer token. Call `get_status`. A fresh identity starts with an empty ledger. If a trip is already present, reuse it and its recorded orders.
 2. Call `import_orders` with `{ "mode": "sample" }`, then `reconcile_trip` with its `trip_id`. Four source bookings total USD 1,491.00; the source prepaid pickup is USD 180.
 3. Call `detect_impact` once for a preview. Read the fictional cancellation and affected bookings; call it again only after confirming, with the returned local `confirmation_code`. Then call `plan_options` to review suggestions. Nothing is sent to merchants.
-4. Call `quote_service`, read the USD 9.90 quote, explicitly confirm, then call `create_service_payment` using `trip_id`, `run_id` and the returned code. Open the Sandbox link and approve with your Sandbox Personal buyer. Then return to the chat and ask “Check my payment.”
+4. Call `quote_service`, read the USD 9.90 quote, explicitly confirm, then call `create_service_payment` using `trip_id`, `run_id` and the returned code. Open the Sandbox link and approve with the supplied Sandbox Personal buyer or your own test buyer. Then return to the chat and ask “Check my payment.”
 5. Call `verify_payment` with the same trip/run. Drafts appear only after the private service returns a receipt with `verificationState: passed` and `chargeOutcome: captured`. Repeating the call reuses the run. Optional: ask `update_case_status` for a preview, then confirm that **you** personally sent the drafts; this records a user report, never a merchant action.
 6. Call `quote_split`, inspect Maya’s USD 0 due and Leo/Ava’s USD 60 each, then explicitly confirm `create_split_payments` with its local code. Two Sandbox links appear; Maya has none. For a short judging session, creating requests is enough. Optional Sandbox payments can be checked with `split_status`; captured members lose their payment prompt.
 

@@ -6,7 +6,7 @@ Access and source-availability correction, 2026-11-06. The current judge entry p
 
 Connect an MCP client to https://mcp.cozytrip.dev/mcp with a published judge token from the README. Judge A has a verified USD 9.90 service receipt and two captured USD 60 shares, confirmed with hosted `get_status` on November 6. Use this identity to view the existing drafts and paid-share status with no new checkout. Start with `get_status` and reuse the returned trip/run IDs.
 
-Judge B and C are reserved for sample onboarding and new orders. Read their current state first because the demo identities are shared. New checkout approval needs a PayPal Sandbox Personal buyer from the judge's own PayPal Developer Dashboard. The submission currently supplies MCP tokens and a walkthrough. Team-issued Sandbox buyer credentials are currently unavailable in the submission's testing instructions. The public README gives this requirement and links to PayPal's account-creation instructions.
+Judge B and C are reserved for sample onboarding and new orders. Read their current state first because the demo identities are shared, and reuse existing orders. A team-supplied PayPal Sandbox Personal buyer email and password are saved in the Devpost submission's private **Testing instructions or credentials** field for judges and organizers. Use that buyer only on the PayPal Sandbox checkout page, then return to chat and say “Check my payment.” Judges may alternatively use their own test buyer. The public README explains both entry paths and where judges can find the supplied login.
 
 ## Source availability for judging
 

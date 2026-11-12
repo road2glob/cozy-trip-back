@@ -4,6 +4,9 @@ A remote MCP assistant that helps a group understand a fictional travel disrupti
 
 ## Hosted demo
 
+- [Official CozyTrip website and interactive demo](https://cozytrip.dev/) for a sample walkthrough of trip disruption, after-sales drafts, and ride cost splitting.
+- [Two-minute CozyTrip demo on YouTube](https://www.youtube.com/watch?v=_wpYKvbZwpU) and [PayPal AI Hackathon submission](https://devpost.com/software/cozytrip).
+
 **MCP URL:** https://mcp.cozytrip.dev/mcp
 Transport: Streamable HTTP. Configure the header `Authorization: Bearer <judge token>` in MCP Inspector or another compatible MCP client.
 
